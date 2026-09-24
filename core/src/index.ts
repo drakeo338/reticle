@@ -64,6 +64,7 @@ export * from './verdict/run-context.js'; // what a run established, folded and 
 export * from './verdict/instrumentation-gap.js'; // what Reticle could not see, and the change that would let it
 export * from './verdict/security.js'; // sanitize/serialize helpers shared by browser + server
 export * from './wire/redaction.js'; // isSensitiveKey / scrubKnownSecrets — the shared redaction rules
+export * from './wire/data-url.js'; // summarizeDataUrl — a data:/blob: URL's bytes never reach a diagnostic
 export * from './wire/state-select.js'; // selectPath / capDepth — shared by browser SDK + server fallback
 export * from './wire/toon.js'; // TOON encoding used by the server's result encoder
 export * from './words/upgrade.js'; // self-update policy shared by the CLI

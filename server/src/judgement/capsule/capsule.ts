@@ -1,4 +1,4 @@
-import { ConsequenceKind, EventType, type ReticleEvent } from '@reticlehq/core';
+import { ConsequenceKind, EventType, summarizeDataUrl, type ReticleEvent } from '@reticlehq/core';
 import { causalSummary, type CausalSummary } from './causal-summary.js';
 import { firstDivergence, type Divergence, type ExpectedLink } from './divergence.js';
 
@@ -27,6 +27,10 @@ export interface DivergenceCapsule {
  *
  * Declared requests are matched by `urlContains`, the same rule the divergence walk uses, so a flow
  * that asked for `/api/order` is not told about `/api/order`.
+ *
+ * The URL is matched raw and REPORTED summarised: a `data:` URL is its whole payload, and one that
+ * reached the radius in full cost tens of thousands of tokens on a green call. The radius says what
+ * was fetched — scheme, media type, size — never the bytes.
  */
 export function blastRadius(
   expected: readonly ExpectedLink[],
@@ -64,7 +68,7 @@ export function blastRadius(
       if ('string' !== typeof url) continue;
       if (declaredUrls.some((fragment) => url.includes(fragment))) continue;
       const method = event.data['method'];
-      add(`net ${'string' === typeof method ? method : 'request'} ${url}`);
+      add(`net ${'string' === typeof method ? method : 'request'} ${summarizeDataUrl(url)}`);
       continue;
     }
     const name = event.data['name'];

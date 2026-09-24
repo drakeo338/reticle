@@ -1,4 +1,10 @@
-import { EventType, PerfMetric, isDevToolingUrl, type ReticleEvent } from '@reticlehq/core';
+import {
+  EventType,
+  PerfMetric,
+  isDevToolingUrl,
+  summarizeDataUrl,
+  type ReticleEvent,
+} from '@reticlehq/core';
 import { routeOfEvent } from '@reticlehq/engine/question/predicate/predicate-route.js';
 
 /**
@@ -190,8 +196,9 @@ export function causalSummary(
         const failed = false === data['ok'] || ('number' === typeof status && status >= 400);
         if (failed) {
           netErrors += 1;
-          // Headline is the first failing request — the thing most worth the agent's eye.
-          headline ??= `${String(data['method'])} ${String(data['url'])} ${String(status)}`;
+          // Headline is the first failing request — the thing most worth the agent's eye. A `data:`
+          // URL is summarised, not quoted: the headline is a name for the request, not its bytes.
+          headline ??= `${String(data['method'])} ${summarizeDataUrl(String(data['url']))} ${String(status)}`;
         }
         break;
       }

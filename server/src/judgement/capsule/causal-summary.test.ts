@@ -220,3 +220,17 @@ describe('the summary reports the route the router is on', () => {
     expect(s.route).toBe('/dashboard');
   });
 });
+
+describe('the net headline names a data: request without quoting it', () => {
+  it('keeps the media type and the status, and states the size of what it dropped', () => {
+    const summary = causalSummary([
+      e(EventType.NET_REQUEST, {
+        method: 'POST',
+        url: `data:image/png;base64,${'A'.repeat(60_000)}`,
+        status: 500,
+        ok: false,
+      }),
+    ]);
+    expect(summary.net.headline).toBe('POST data:image/png;base64,<…60000 bytes…> 500');
+  });
+});

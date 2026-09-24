@@ -209,6 +209,12 @@ export const READ_PATH = Object.freeze({
     ],
     isToonable: [Declaration.NONE, 'predicate'],
   },
+  'core/src/wire/data-url.ts': {
+    summarizeDataUrl: [
+      Declaration.MARKER,
+      'replaces the payload of a data:/blob: URL with a sized sentinel — "data:image/png;base64,<…48219 bytes…>" — keeping the scheme and media type. In-band because it stands in the url slot of a diagnostic string (blast radius, net headline) where nothing can ride beside it',
+    ],
+  },
 });
 
 /**

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { capDepth, selectPath, projectComponentState } from './wire/state-select.js';
 import { toToon, resultToToon } from './wire/toon.js';
+import { summarizeDataUrl } from './wire/data-url.js';
 
 /**
  * Conformance half of the lossy-transform invariant, for the transforms that live in core.
@@ -117,5 +118,39 @@ describe('projectComponentState declares the hooks it dropped', () => {
   it('says nothing when nothing was dropped (the marker IS the warning)', () => {
     const intact = { ok: true, hooks: [1, 'two', { current: null }] };
     expect(projectComponentState(intact)).toEqual(intact);
+  });
+});
+
+describe('summarizeDataUrl declares the payload it dropped with a sized marker', () => {
+  // MARKER rather than REPORT: the summary stands in the `url` slot of a diagnostic string, where
+  // nothing can ride beside it. What survives is what a reader can use — scheme and media type —
+  // and the marker states how much was behind them, so a summarised PNG is never mistakable for
+  // an empty one.
+  it('keeps the media type and states the size of the elided payload', () => {
+    const payload = 'A'.repeat(48219);
+    expect(summarizeDataUrl(`data:image/png;base64,${payload}`)).toBe(
+      'data:image/png;base64,<…48219 bytes…>',
+    );
+  });
+
+  it('bounds a blob: URL the same way, keeping the origin', () => {
+    const summary = summarizeDataUrl(
+      'blob:https://app.example/8b1d3c2a-7f4e-4d1a-9c0b-2e5f6a7b8c9d',
+    );
+    expect(summary).toBe('blob:https://app.example/<…36 bytes…>');
+  });
+
+  it('matches the scheme regardless of case, as the browser does', () => {
+    expect(summarizeDataUrl('DATA:text/plain,hello')).toBe('DATA:text/plain,<…5 bytes…>');
+  });
+
+  it('still marks a data: URL with no payload separator, rather than passing the bytes through', () => {
+    expect(summarizeDataUrl('data:image/png;base64')).toBe('data:<…16 bytes…>');
+  });
+
+  it('returns every other URL byte-for-byte, so the marker always MEANS something', () => {
+    for (const url of ['/api/order', 'https://api.example/v1?x=1', 'ipc://get_user', '']) {
+      expect(summarizeDataUrl(url)).toBe(url);
+    }
   });
 });

@@ -92,3 +92,37 @@ describe('requests nobody declared', () => {
     expect(buildDivergenceCapsule(expected, observed).blastRadius).toEqual(['net GET /api/me']);
   });
 });
+
+/**
+ * A `data:` URL is its payload. An image generated in the page and fetched back reached the radius
+ * as `data:image/png;base64,` plus every byte of the PNG — tens of thousands of tokens on a call
+ * that had succeeded. Nothing that reads a blast radius can use the bytes; the diagnostic is that
+ * a PNG was fetched, and how big it was.
+ */
+describe('an undeclared data: URL is summarised, not quoted', () => {
+  it('bounds the entry and keeps the media type', () => {
+    const payload = 'A'.repeat(60_000);
+    const observed = [
+      e(EventType.NET_REQUEST, {
+        method: 'GET',
+        url: `data:image/png;base64,${payload}`,
+        status: 200,
+      }),
+    ];
+    const [entry] = buildDivergenceCapsule([], observed).blastRadius;
+    expect(entry).toBe('net GET data:image/png;base64,<…60000 bytes…>');
+    expect(entry?.length).toBeLessThan(100);
+  });
+
+  it('still matches a declared request against the RAW url', () => {
+    const expected: ExpectedLink[] = [{ kind: 'net', urlContains: 'image/png', status: 200 }];
+    const observed = [
+      e(EventType.NET_REQUEST, {
+        method: 'GET',
+        url: `data:image/png;base64,${'A'.repeat(1000)}`,
+        status: 200,
+      }),
+    ];
+    expect(buildDivergenceCapsule(expected, observed).blastRadius).toEqual([]);
+  });
+});

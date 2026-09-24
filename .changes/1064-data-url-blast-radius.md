@@ -1,0 +1,3 @@
+### Fixed
+
+- **`@reticlehq/server` — a `data:` URL was serialised into `blastRadius` in full.** An action that fetched an image it had just generated came back green with the whole `data:image/png;base64,…` URL in its blast radius, costing tens of thousands of tokens on a call with nothing wrong to report. A `data:` or `blob:` URL is now summarised before it reaches the agent — `data:image/png;base64,<…48219 bytes…>` — keeping the scheme, the media type and the size, in the blast radius and in the causal summary's net headline alike. Closes [#1064](https://github.com/reticlehq/reticle/issues/1064).
