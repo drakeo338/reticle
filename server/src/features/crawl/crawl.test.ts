@@ -136,6 +136,19 @@ describe('crawl — autonomous smart-monkey', () => {
     expect(r.anomalies[0]?.detail).toContain('/api/order');
   });
 
+  it('3b: a failed data: fetch is named by its media type and size, not its bytes (#1064)', async () => {
+    const dataUrl = `data:image/png;base64,${'A'.repeat(60_000)}`;
+    const session = fakeSession(tree(['button "Render" (ref=e1)']), {
+      e1: {
+        events: [
+          { type: EventType.NET_REQUEST, data: { method: 'GET', url: dataUrl, status: 500 } },
+        ],
+      },
+    });
+    const r = await crawl(session, {}, noSleep);
+    expect(r.anomalies[0]?.detail).toBe('GET data:image/png;base64,<…60000 bytes…> → 500');
+  });
+
   it('4: a dispatched click with no reaction is a DEAD control', async () => {
     const session = fakeSession(tree(['button "Nothing" (ref=e1)']), { e1: { events: [] } });
     const r = await crawl(session, {}, noSleep);

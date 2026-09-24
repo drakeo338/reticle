@@ -8,7 +8,12 @@
  * can use the bytes; what it can use is the scheme, the media type and the size.
  *
  * Lives in core because the URL is reachable from more than one diagnostic and a fix in one of them
- * leaves the others. Every path that serialises a request URL for the agent calls this first.
+ * leaves the others. The server paths that write a request URL for the agent call it: the blast
+ * radius and the causal summary's net headline (`judgement/capsule`), the in-flight and repeated
+ * request labels of an unsettled verdict (`surface/tools/act/settle-in-flight`), the hung-request
+ * and hidden-5xx evidence (`judgement/phenomena`) and the crawl's failed-request detail
+ * (`features/crawl`). The engine's own request descriptions — predicate evaluation, contradiction
+ * evidence, lineage — do not call it yet.
  */
 
 /** Scheme of a URL whose payload travels inline, RFC 2397. */

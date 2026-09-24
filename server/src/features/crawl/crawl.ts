@@ -16,7 +16,7 @@ import {
   type ReticleEvent,
 } from '@reticlehq/core';
 import { crawlEmptyNote } from './crawl-empty.js';
-import { asNumber, asRecord, asString } from '@reticlehq/core';
+import { asNumber, asRecord, asString, summarizeDataUrl } from '@reticlehq/core';
 import { parseInteractive } from '@reticlehq/core';
 import { sourceOf } from '@/surface/tools/tools-helpers.js';
 import { isSessionReplacedError } from '@/portal/session/facts/session-replaced.js';
@@ -442,7 +442,9 @@ export async function crawl(
     for (const e of failedRequests(events, CRAWL_DEFAULTS.FAILED_STATUS)) {
       counts.failedRequests += 1;
       const method = asString(e.data['method']) ?? '';
-      const url = asString(e.data['url']) ?? '';
+      // The detail names the request for the agent; a `data:` URL is named by its media type and
+      // size, never by its bytes.
+      const url = summarizeDataUrl(asString(e.data['url']) ?? '');
       const status = asNumber(e.data['status']);
       anomalies.push({
         kind: CrawlAnomalyKind.FAILED_REQUEST,

@@ -100,6 +100,43 @@ describe('which requests are still in flight', () => {
     // land inside it. That settles nothing this action started and must not be read as progress.
     expect(inFlightRequestIds([settled('older')])).toEqual([]);
   });
+
+  /**
+   * A `data:` URL is its payload. An image generated in the page and fetched back twice would have
+   * put the whole PNG into the verdict — twice over across the two label lists — on a call with
+   * nothing wrong to say (#1064). The label keeps what an agent can act on: the method, the scheme,
+   * the media type and the size.
+   */
+  describe('a data: URL is named by its media type and size, never by its bytes', () => {
+    const PNG_BYTES = 60_000;
+    const dataUrl = `data:image/png;base64,${'A'.repeat(PNG_BYTES)}`;
+    const fetched = (id: string, t: number, url = dataUrl): Ev => ({
+      type: EventType.NET_REQUEST,
+      t,
+      data: { id, url, method: 'GET', status: 200 },
+    });
+
+    it('a repeated fetch keeps its count and loses its payload', () => {
+      const labels = repeatedRequestLabels([fetched('img', 1), fetched('img', 2)]);
+      expect(labels).toEqual(['GET data:image/png;base64,<…60000 bytes…> ×2']);
+      expect(labels[0]?.length).toBeLessThan(80);
+    });
+
+    it('counts on the raw URL, so two different payloads of the same size are not one repeat', () => {
+      const otherPng = dataUrl.replace(/A$/, 'B');
+      expect(repeatedRequestLabels([fetched('img', 1), fetched('img2', 2, otherPng)])).toEqual([]);
+    });
+
+    it('an in-flight fetch is labelled the same way', () => {
+      const started: Ev = {
+        type: EventType.NET_PENDING,
+        t: 0,
+        data: { id: 'img', url: dataUrl, method: 'GET' },
+      };
+      const labels = inFlightRequestLabels([started]);
+      expect(labels).toEqual(['GET data:image/png;base64,<…60000 bytes…>']);
+    });
+  });
 });
 
 describe('waiting out the remaining budget', () => {

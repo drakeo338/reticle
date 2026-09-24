@@ -28,7 +28,7 @@
  *     limit instead of an early exit.
  */
 
-import { EventType, NetInitiator, isDevToolingUrl } from '@reticlehq/core';
+import { EventType, NetInitiator, isDevToolingUrl, summarizeDataUrl } from '@reticlehq/core';
 
 /**
  * The dev toolchain talking about ITSELF is not the app finishing its work.
@@ -99,6 +99,10 @@ export function inFlightRequestIds(
  * `r-17` is open cannot act on it, while `POST /api/login` is the thing to re-check or to assert
  * directly. Read off the NET_PENDING the window already holds, so this costs one pass over events
  * that are in hand.
+ *
+ * A `data:` URL is summarised, as it is everywhere a URL is written for the agent: the label names
+ * the request, and `POST data:image/png;base64,<…48219 bytes…>` names it as well as the bytes would,
+ * at none of the cost.
  */
 export function inFlightRequestLabels(
   events: readonly { type: string; data: Record<string, unknown> }[],
@@ -111,7 +115,8 @@ export function inFlightRequestLabels(
     if (id === undefined || !open.has(id)) continue;
     open.delete(id); // one label per request, however many times its start was recorded
     const method = 'string' === typeof e.data['method'] ? e.data['method'] : 'request';
-    const url = 'string' === typeof e.data['url'] ? e.data['url'] : 'an unreported url';
+    const url =
+      'string' === typeof e.data['url'] ? summarizeDataUrl(e.data['url']) : 'an unreported url';
     labels.push(`${method} ${url}`);
   }
   return labels;
@@ -132,23 +137,30 @@ const MIN_REPEATS = 2;
  * `act_and_wait` could never return a pass, and nothing in the verdict said which endpoint to look
  * at. This does not judge the repetition — a poll is legitimate — it reports it, which is all an
  * agent needs to tell "my assertion was wrong" from "this app never quiets".
+ *
+ * Counted on the RAW url and labelled with the summary. Two `data:` URLs with the same media type and
+ * size are not the same endpoint, and a summary that merged them would report a repeat that never
+ * happened; the count is a fact about the traffic, the label is what the agent can afford to read.
  */
 export function repeatedRequestLabels(
   events: readonly { type: string; data: Record<string, unknown> }[],
 ): string[] {
-  const counts = new Map<string, number>();
+  const counts = new Map<string, { label: string; count: number }>();
   for (const e of events) {
     if (e.type !== EventType.NET_REQUEST || isDevTooling(e.data)) continue;
     const method = 'string' === typeof e.data['method'] ? e.data['method'] : 'request';
     const url = 'string' === typeof e.data['url'] ? e.data['url'] : 'an unreported url';
     const key = `${method} ${url}`;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const seen = counts.get(key);
+    if (seen === undefined)
+      counts.set(key, { label: `${method} ${summarizeDataUrl(url)}`, count: 1 });
+    else seen.count += 1;
   }
-  return [...counts.entries()]
-    .filter(([, count]) => count >= MIN_REPEATS)
-    .sort(([, a], [, b]) => b - a)
+  return [...counts.values()]
+    .filter(({ count }) => count >= MIN_REPEATS)
+    .sort((a, b) => b.count - a.count)
     .slice(0, MAX_REPEATED)
-    .map(([key, count]) => `${key} ×${String(count)}`);
+    .map(({ label, count }) => `${label} ×${String(count)}`);
 }
 
 interface SettleResult {

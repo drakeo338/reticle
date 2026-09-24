@@ -4,6 +4,7 @@ import {
   PhenomenonType,
   RETICLE_ERROR_BOUNDARY_SIGNAL,
   RETICLE_HYDRATION_SIGNAL,
+  summarizeDataUrl,
   type JournalAction,
   type ReticleEvent,
 } from '@reticlehq/core';
@@ -17,6 +18,14 @@ interface Finding {
   phenomenon: PhenomenonType;
   evidence: Record<string, unknown>;
 }
+
+/**
+ * A request URL as evidence: summarised when it is a `data:` or `blob:` URL, because the evidence
+ * is what the request WAS, and a payload of every byte says that no better than its media type and
+ * size do. Anything that is not a string is passed through as the journal recorded it.
+ */
+const urlEvidence = (url: unknown): unknown =>
+  'string' === typeof url ? summarizeDataUrl(url) : url;
 
 /** ACT tools that represent a user-style interaction (a "click"), for dead-click detection. */
 const CLICK_TOOLS = new Set<string>([FlowStepTool.ACT, FlowStepTool.ACT_AND_WAIT]);
@@ -33,7 +42,11 @@ export function detectHungRequests(events: readonly ReticleEvent[]): Finding[] {
     if (completed.has(event.data['id'])) continue;
     findings.push({
       phenomenon: PhenomenonType.HUNG_REQUEST,
-      evidence: { id: event.data['id'], method: event.data['method'], url: event.data['url'] },
+      evidence: {
+        id: event.data['id'],
+        method: event.data['method'],
+        url: urlEvidence(event.data['url']),
+      },
     });
   }
   return findings;
@@ -54,7 +67,7 @@ export function detectHidden500(events: readonly ReticleEvent[]): Finding[] {
     if (hidden && 'number' === typeof status && status >= 500) {
       findings.push({
         phenomenon: PhenomenonType.HIDDEN_500,
-        evidence: { url: event.data['url'], status, method: event.data['method'] },
+        evidence: { url: urlEvidence(event.data['url']), status, method: event.data['method'] },
       });
     }
   }

@@ -62,6 +62,19 @@ describe('detectHidden500', () => {
     expect(findings).toHaveLength(1);
     expect(findings[0]?.evidence).toMatchObject({ url: '/bg', status: 503 });
   });
+
+  it('names a data: URL by its media type and size, not its bytes (#1064)', () => {
+    const dataUrl = `data:image/png;base64,${'A'.repeat(60_000)}`;
+    const hung = detectHungRequests([
+      e(EventType.NET_PENDING, { id: 'n1', method: 'GET', url: dataUrl }),
+    ]);
+    expect(hung[0]?.evidence).toMatchObject({ url: 'data:image/png;base64,<…60000 bytes…>' });
+    const hidden = detectHidden500([
+      e(EventType.PAGE_HEALTH, { hidden: true, focused: false }),
+      e(EventType.NET_REQUEST, { id: 'n2', url: dataUrl, status: 500 }),
+    ]);
+    expect(hidden[0]?.evidence).toMatchObject({ url: 'data:image/png;base64,<…60000 bytes…>' });
+  });
 });
 
 describe('detectDeadClicks', () => {
