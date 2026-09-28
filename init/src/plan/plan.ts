@@ -575,11 +575,14 @@ function alreadyDeclared(declared: string | undefined, pinned: string | undefine
 
 function installStep(input: PlanInput): Step {
   const pm = input.detection.packageManager;
+  // `Detection.packageManagerCommand` (see `preflight.ts`, #1149). Falling back to `pm` covers every
+  // caller that never went through preflight (tests, and any future one).
+  const pmCommand = input.detection.packageManagerCommand ?? pm;
   const packages = pinnedPackages(
     frameworkPackages(input.detection.framework, input.detection.uiLibrary),
     input.options.sdkVersion,
   );
-  const command = installCommand(pm, packages);
+  const command = installCommand(pm, packages, pmCommand);
   /*
    * A re-run over an already-wired project does NO dependency work.
    *
@@ -608,7 +611,7 @@ function installStep(input: PlanInput): Step {
       detail: command,
     };
   }
-  const parts = installCommandParts(pm, packages);
+  const parts = installCommandParts(pm, packages, [], pmCommand);
   return {
     title: 'Install dependencies',
     target: 'package.json',
@@ -617,13 +620,14 @@ function installStep(input: PlanInput): Step {
     exec: {
       command: parts.command,
       args: parts.args,
-      fallback: `${command}\n\n${installFailureHint(pm)}`,
+      fallback: `${command}\n\n${installFailureHint(pm, pmCommand)}`,
     },
     retries: installRetries(
       pm,
       packages,
       frameworkPackages(input.detection.framework, input.detection.uiLibrary),
       input.options.sdkVersion,
+      pmCommand,
     ),
   };
 }
