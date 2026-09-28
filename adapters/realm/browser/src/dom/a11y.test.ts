@@ -137,4 +137,46 @@ describe('label for> on a labelable element other than input/textarea/select', (
       button.remove();
     }
   });
+
+  it.each(['meter', 'output', 'progress'])(
+    'names a %s from a native label, not its own content',
+    (tag) => {
+      const label = document.createElement('label');
+      label.htmlFor = 'm';
+      label.append('Disk usage');
+      const el = document.createElement(tag);
+      el.id = 'm';
+      document.body.append(label, el);
+      try {
+        expect(getAccessibleName(el)).toBe('Disk usage');
+      } finally {
+        label.remove();
+        el.remove();
+      }
+    },
+  );
+});
+
+describe('the labels read is scoped to labelable elements', () => {
+  /**
+   * `getAccessibleName` runs over every element a snapshot walks, not only form fields, so it meets
+   * arbitrary elements - including custom elements an app defines with its own `labels` property for
+   * its own purposes (a tag list, a chart's category labels, ...). A `<div role="radio">` is not
+   * labelable per the HTML spec, so this read must never touch `.labels` on it at all: a hostile
+   * getter that throws, or a `.labels` that isn't a NodeList, must not break naming for elements this
+   * function has no business reading `.labels` from in the first place.
+   */
+  it('does not throw and falls back to content when a non-labelable element has a hostile labels property', () => {
+    const el = document.createElement('div');
+    el.setAttribute('role', 'radio');
+    el.textContent = 'held';
+    Object.defineProperty(el, 'labels', {
+      configurable: true,
+      get() {
+        throw new Error('boom');
+      },
+    });
+    expect(() => getAccessibleName(el)).not.toThrow();
+    expect(getAccessibleName(el)).toBe('held');
+  });
 });
