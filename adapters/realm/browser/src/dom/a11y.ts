@@ -257,8 +257,8 @@ export function getAccessibleName(el: Element): string {
     isOutput(el) ||
     isProgress(el);
   if (isLabelable) {
-    const labels = (el as Partial<HTMLInputElement>).labels;
-    if (labels !== null && labels !== undefined && labels.length > 0) {
+    const labels = el.labels;
+    if (labels !== null && labels.length > 0) {
       const text = [...labels]
         .map((l) => collapse(textWithoutHidden(l)))
         .join(' ')
