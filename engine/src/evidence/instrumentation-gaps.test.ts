@@ -180,6 +180,34 @@ describe('gapsForAction', () => {
       expect(store?.source).toBeUndefined();
     });
   });
+
+  /**
+   * #1146: `registerStore('app', () => state)` registers a store that `reticle_state` can read, so a
+   * `state` assertion passes off it — but a bare getter has no subscribe, so the channel is still
+   * unwatched. `stateUnwatched` means "no SUBSCRIBABLE store", and it reads the same whether the app
+   * registered nothing, registered only a getter, or is a React app whose only store is Reticle's own
+   * render meter. The gap cannot tell those apart, so it may only say what is true of all three.
+   */
+  describe('a store registered as a bare getter', () => {
+    const [gap] = gapsForAction({
+      ...clean,
+      pass: true,
+      stateAsked: true,
+      stateUnwatched: true,
+      hasCapabilities: true,
+    });
+
+    it('is not told that no store is registered', () => {
+      expect(gap?.kind).toBe(InstrumentationGapKind.NO_STORE_REGISTERED);
+      expect(gap?.missing).not.toContain('no store is registered');
+      expect(gap?.missing).toContain('subscribable');
+    });
+
+    it('is not told its passing state assertion fell back to the DOM', () => {
+      // A state predicate is answered by reading the store on demand (STATE_READ), not from the DOM.
+      expect(gap?.cost).not.toContain('DOM');
+    });
+  });
 });
 
 describe('a green verdict that leaves an intent undischarged', () => {
