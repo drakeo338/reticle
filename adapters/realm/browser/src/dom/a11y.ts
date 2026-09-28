@@ -228,15 +228,21 @@ export function getAccessibleName(el: Element): string {
     if (alt !== null) return alt.trim();
   }
 
+  // `.labels` exists on every labelable element (input, textarea, select, button, meter, output,
+  // progress) per the HTML spec, not only the three handled below, so this read must not be gated
+  // on `isInput/isTextArea/isSelect`: a `<button role="combobox">` (or `<meter>`/`<output>`) with a
+  // native `<label for>` was falling through to its own text content or NAME_FROM_CONTENT, and a
+  // `by: role` + name lookup for it found nothing.
+  const labels = (el as Partial<HTMLInputElement>).labels;
+  if (labels !== null && labels !== undefined && labels.length > 0) {
+    const text = [...labels]
+      .map((l) => collapse(textWithoutHidden(l)))
+      .join(' ')
+      .trim();
+    if (text.length > 0) return text;
+  }
+
   if (isInput(el) || isTextArea(el) || isSelect(el)) {
-    const labels = el.labels;
-    if (labels !== null && labels.length > 0) {
-      const text = [...labels]
-        .map((l) => collapse(textWithoutHidden(l)))
-        .join(' ')
-        .trim();
-      if (text.length > 0) return text;
-    }
     // Submit-like inputs carry their name on `value`, exactly where the visible caption comes
     // from: `<input type="submit" value="Send">` renders a button reading Send. Without this the
     // descriptor printed `button ""` while `by: text` found the very same input by "Send", so the

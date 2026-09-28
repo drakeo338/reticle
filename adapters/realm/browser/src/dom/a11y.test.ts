@@ -96,3 +96,45 @@ describe('aria-hidden decoration inside a label', () => {
     expect(getAccessibleName(el)).toBe('Save');
   });
 });
+
+describe('label for> on a labelable element other than input/textarea/select', () => {
+  /**
+   * `<button>` is a labelable element (as are `<meter>`, `<output>` and `<progress>`), and a native
+   * `<label for>` outranks the button's own content in the name computation. `el.labels` was only
+   * read inside the input/textarea/select guard, so a select-style trigger built as
+   * `<button role="combobox">` with a `<label for>` fell through to naming from its own text content
+   * instead - `{ role: "combobox", name: "…" }` found nothing and targeting had to fall back to refs.
+   */
+  it("prefers a native label over a button's own content", () => {
+    const label = document.createElement('label');
+    label.htmlFor = 'plan';
+    label.append('Plan');
+    const button = document.createElement('button');
+    button.id = 'plan';
+    button.setAttribute('role', 'combobox');
+    button.append('Choose…');
+    document.body.append(label, button);
+    try {
+      expect(getAccessibleName(button)).toBe('Plan');
+    } finally {
+      label.remove();
+      button.remove();
+    }
+  });
+
+  it('names a plain button from its label', () => {
+    const label = document.createElement('label');
+    label.htmlFor = 'b';
+    label.append('Save draft');
+    const button = document.createElement('button');
+    button.id = 'b';
+    button.append('Save');
+    document.body.append(label, button);
+    try {
+      expect(getAccessibleName(button)).toBe('Save draft');
+    } finally {
+      label.remove();
+      button.remove();
+    }
+  });
+});
