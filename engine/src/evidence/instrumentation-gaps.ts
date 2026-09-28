@@ -167,7 +167,7 @@ export function gapsForAction(facts: ActionInstrumentationFacts): Instrumentatio
           : 'no subscribable store is registered, and this assertion was about state',
         declaredNothing
           ? 'every verdict here rests on what the DOM happens to show, and reticle_state will stay empty however many flows are driven'
-          : 'no state change is observed, so state can at best be read as it stands and never seen changing',
+          : 'no state change is observed, so state, when it can be read at all, is read only as it stands and never seen changing',
       ),
     );
   }

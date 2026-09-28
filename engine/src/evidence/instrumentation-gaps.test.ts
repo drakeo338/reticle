@@ -207,6 +207,15 @@ describe('gapsForAction', () => {
       // A state predicate is answered by reading the store on demand (STATE_READ), not from the DOM.
       expect(gap?.cost).not.toContain('DOM');
     });
+
+    it('does not claim state can be read, since these same facts also describe an app with no store at all', () => {
+      // This fact object is deliberately indistinguishable (see the comment above `gapsForAction`)
+      // from an app that registered nothing, or a React app whose only store is Reticle's own
+      // render meter — and in those two cases nothing can be read, not even a one-off snapshot.
+      // A cost that flatly says state "can at best be read as it stands" is true here but false
+      // there, and the sentence has to hold for all three (greptile finding on PR #1170).
+      expect(gap?.cost).toMatch(/when it can be read at all/);
+    });
   });
 });
 
