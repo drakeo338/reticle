@@ -213,7 +213,7 @@ describe('gapsForAction', () => {
       // from an app that registered nothing, or a React app whose only store is Reticle's own
       // render meter — and in those two cases nothing can be read, not even a one-off snapshot.
       // A cost that flatly says state "can at best be read as it stands" is true here but false
-      // there, and the sentence has to hold for all three (greptile finding on PR #1170).
+      // there, and the sentence has to hold for all three.
       expect(gap?.cost).toMatch(/when it can be read at all/);
     });
   });
