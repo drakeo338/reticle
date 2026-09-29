@@ -203,6 +203,11 @@ export function scrubSeedFromError(text: string, seed?: unknown): string {
   return out;
 }
 
+/** True for a Playwright `storageState()` export (`{ origins: [...] }`), not our seed shape. */
+function looksLikeStorageStateExport(seed: unknown): boolean {
+  return Array.isArray((seed as { origins?: unknown } | null)?.origins);
+}
+
 /**
  * Turn a raw navigation failure (Playwright's `page.goto: net::ERR_… at <url>\nCall log:…`, often
  * with ANSI codes) into a short, clean reason — so the agent/user sees "is the app running?" instead
@@ -619,7 +624,12 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
           parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', '),
           seedStorageArg,
         );
-        throw new Error(`reticle_lease{action:"acquire"} seedStorage is invalid: ${issuesMsg}`);
+        const shape = looksLikeStorageStateExport(seedStorageArg)
+          ? 'a Playwright storageState() export, not { local?, session?, cookies? } (map origins[].localStorage into `local`)'
+          : '{ local?, session?, cookies? }';
+        throw new Error(
+          `reticle_lease{action:"acquire"} seedStorage is invalid: ${issuesMsg}. Expected ${shape}.`,
+        );
       }
       validatedSeed = parsed.data;
     }

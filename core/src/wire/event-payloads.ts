@@ -76,19 +76,23 @@ export type SeedCookies = z.infer<typeof SeedCookiesSchema>;
  * Client storage and session state to seed into an isolated context before the first navigation.
  * Matches the three storage areas Reticle already observes (localStorage, sessionStorage, cookies).
  */
-export const SeedStorageSchema = z.object({
-  local: z
-    .record(z.string())
-    .optional()
-    .describe('Key-value pairs to seed into window.localStorage before first navigation.'),
-  session: z
-    .record(z.string())
-    .optional()
-    .describe('Key-value pairs to seed into window.sessionStorage before first navigation.'),
-  cookies: SeedCookiesSchema.optional().describe(
-    'Cookies to seed before first navigation: a name-value record scoped to the lease URL or an array of cookie objects.',
-  ),
-});
+export const SeedStorageSchema = z
+  .object({
+    local: z
+      .record(z.string())
+      .optional()
+      .describe('Key-value pairs to seed into window.localStorage before first navigation.'),
+    session: z
+      .record(z.string())
+      .optional()
+      .describe('Key-value pairs to seed into window.sessionStorage before first navigation.'),
+    cookies: SeedCookiesSchema.optional().describe(
+      'Cookies to seed before first navigation: a name-value record scoped to the lease URL or an array of cookie objects.',
+    ),
+  })
+  // Unknown keys (e.g. a typo'd `localStorage`, or a Playwright `storageState` shape) must be
+  // rejected, not silently dropped, or the caller believes seeding happened when nothing was seeded.
+  .strict();
 export type SeedStorage = z.infer<typeof SeedStorageSchema>;
 
 const elementLabel = z.object({ role: z.string().optional(), name: z.string().optional() });

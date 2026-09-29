@@ -765,6 +765,33 @@ describe('reticle_lease with seedStorage', () => {
     ).rejects.toThrow(/seedStorage is invalid: local: Expected object, received number/);
   });
 
+  it('rejects an unrecognised seedStorage key instead of silently stripping it (#1142)', async () => {
+    const { pool, acquired } = fakePool();
+    const deps = { ...baseDeps, pool } as unknown as ToolDeps;
+
+    await expect(
+      tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+        url: 'http://localhost:3000/',
+        seedStorage: { localStorage: { a: '1' } },
+      }),
+    ).rejects.toThrow(/seedStorage is invalid:.*\blocal\b/);
+    // Never silently reaches pool.acquire seeding nothing.
+    expect(acquired).toHaveLength(0);
+  });
+
+  it('rejects a Playwright storageState shape passed as seedStorage (#1142)', async () => {
+    const { pool, acquired } = fakePool();
+    const deps = { ...baseDeps, pool } as unknown as ToolDeps;
+
+    await expect(
+      tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+        url: 'http://localhost:3000/',
+        seedStorage: { origins: [] },
+      }),
+    ).rejects.toThrow(/seedStorage is invalid:.*\blocal\b/);
+    expect(acquired).toHaveLength(0);
+  });
+
   it('releases an existing lease on the origin and mints fresh when seedStorage is provided', async () => {
     const { pool, released } = fakePool();
     const deps = { ...baseDeps, pool } as unknown as ToolDeps;
