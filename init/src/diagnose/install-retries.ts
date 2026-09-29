@@ -91,6 +91,9 @@ export function installRetries(
       : []),
     // Unpinned, last. pnpm resolves the newest MATURE version there, which is how a project with a
     // release-age hold gets a working install instead of no install.
-    { ...installCommandParts(pm, unpinned, [], pmCommand), note: unpinnedRetryNote(sdkVersion, pm) },
+    {
+      ...installCommandParts(pm, unpinned, [], pmCommand),
+      note: unpinnedRetryNote(sdkVersion, pm),
+    },
   ];
 }
