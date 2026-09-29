@@ -110,6 +110,23 @@ describe('a corepack-managed package manager is not a missing one', () => {
   });
 });
 
+/**
+ * The refusal names `--url` as the way past it, so `--url` has to actually get past it.
+ *
+ * Reported from the field: `init --app src/ui --url http://localhost:3100` with pnpm absent printed
+ * *"this project uses pnpm and pnpm is not installed... or pass --url with the address the app
+ * already serves"* — while `--url` WAS passed. The flag was parsed, and then never handed to `init`
+ * at all, so it could not have changed this decision. Installing pnpm was the only way forward.
+ *
+ * This is on the install path, it is the first command a user runs, and the message sends them in a
+ * circle: it describes the escape hatch they are already holding.
+ *
+ * The check is about the DEV SERVER — its whole purpose is to stop `spawn pnpm ENOENT` surfacing
+ * inside "the dev server exited". `--url` says the app is already served, so init starts nothing and
+ * the condition this guards does not arise. If the dependency install then fails, that is one step
+ * reporting ⚠, which is what a step that cannot complete is supposed to do — and is a far better
+ * outcome than refusing to write anything at all.
+ */
 describe('--url gets past the check that advertises it', () => {
   const noPnpm = io({ probe: (command) => 'pnpm' !== command && 'corepack' !== command });
 

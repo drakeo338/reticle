@@ -57,6 +57,12 @@ export type PreflightResult = { refusal: string; command?: undefined } | { refus
  * actually was — two subprocesses (the bare binary, then corepack) doing the same test twice on every
  * ordinary run. This is the single call site: it returns either the command every later step should
  * invoke, or the refusal to print, never both and never neither.
+ *
+ * `packageManager` is the one init RESOLVED, never a raw lockfile check. An inherited
+ * `pnpm-lock.yaml` at a monorepo root does not mean the app in `frontend/` uses pnpm — that app's own
+ * installed tree outranks an ancestor lockfile, and detect.ts already works this out. Re-deriving it
+ * here from `exists('pnpm-lock.yaml')` refused an npm app sitting under a pnpm monorepo on a machine
+ * with no pnpm, which the install gate proves must succeed.
  */
 export function preflight(
   io: PreflightIo,
