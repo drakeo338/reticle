@@ -769,12 +769,18 @@ describe('reticle_lease with seedStorage', () => {
     const { pool, acquired } = fakePool();
     const deps = { ...baseDeps, pool } as unknown as ToolDeps;
 
-    await expect(
-      tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+    try {
+      await tool(ReticleTool.LEASE_ACQUIRE)(deps, {
         url: 'http://localhost:3000/',
         seedStorage: { localStorage: { a: '1' } },
-      }),
-    ).rejects.toThrow(/seedStorage is invalid:.*\blocal\b/);
+      });
+      expect.unreachable('should have thrown');
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      // Names the offending key, not just the accepted shape.
+      expect(msg).toContain('localStorage');
+      expect(msg).toMatch(/seedStorage is invalid:.*\blocal\b/);
+    }
     // Never silently reaches pool.acquire seeding nothing.
     expect(acquired).toHaveLength(0);
   });
@@ -783,12 +789,20 @@ describe('reticle_lease with seedStorage', () => {
     const { pool, acquired } = fakePool();
     const deps = { ...baseDeps, pool } as unknown as ToolDeps;
 
-    await expect(
-      tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+    try {
+      await tool(ReticleTool.LEASE_ACQUIRE)(deps, {
         url: 'http://localhost:3000/',
         seedStorage: { origins: [] },
-      }),
-    ).rejects.toThrow(/seedStorage is invalid:.*\blocal\b/);
+      });
+      expect.unreachable('should have thrown');
+    } catch (err: unknown) {
+      const msg = (err as Error).message;
+      // Names the offending key and points at the Playwright hint...
+      expect(msg).toContain('origins');
+      expect(msg).toMatch(/storageState\(\)/);
+      // ...worded as a statement, never as "Expected a Playwright...".
+      expect(msg).not.toMatch(/Expected a Playwright/);
+    }
     expect(acquired).toHaveLength(0);
   });
 

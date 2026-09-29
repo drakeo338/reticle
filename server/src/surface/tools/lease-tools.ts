@@ -620,16 +620,16 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
     if (seedStorageArg !== undefined) {
       const parsed = SeedStorageSchema.safeParse(seedStorageArg);
       if (!parsed.success) {
-        const issuesMsg = scrubSeedFromError(
-          parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', '),
+        const msg = scrubSeedFromError(
+          parsed.error.issues
+            .map((i) => (i.path.length > 0 ? `${i.path.join('.')}: ${i.message}` : i.message))
+            .join(', '),
           seedStorageArg,
         );
-        const shape = looksLikeStorageStateExport(seedStorageArg)
-          ? 'a Playwright storageState() export, not { local?, session?, cookies? } (map origins[].localStorage into `local`)'
-          : '{ local?, session?, cookies? }';
-        throw new Error(
-          `reticle_lease{action:"acquire"} seedStorage is invalid: ${issuesMsg}. Expected ${shape}.`,
-        );
+        const hint = looksLikeStorageStateExport(seedStorageArg)
+          ? 'This looks like a Playwright storageState() export ({ origins, cookies }); seedStorage takes { local?, session?, cookies? } (map origins[].localStorage into `local`).'
+          : 'Expected { local?, session?, cookies? }.';
+        throw new Error(`reticle_lease{action:"acquire"} seedStorage is invalid: ${msg}. ${hint}`);
       }
       validatedSeed = parsed.data;
     }
