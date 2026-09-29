@@ -486,7 +486,12 @@ export async function start(options: StartOptions = {}): Promise<RunningServer> 
     const server = createMcpServer(
       realInput !== undefined ? { ...deps, realInput } : deps,
       profile,
-      hasAnyProjectConnectedBefore(reticleStateHome(), port, projectIdsAt(process.cwd())),
+      // A session live RIGHT NOW is stronger evidence than the durable memory, which can be empty or
+      // stale for a project the plugin wired without writing `.reticle.json` (see connection-memory.ts's
+      // KNOWN LIMIT). Without this OR, that project's `initialize` led with the first-install steps
+      // while a real session was already connected — see #1138.
+      bridge.sessions.count() > 0 ||
+        hasAnyProjectConnectedBefore(reticleStateHome(), port, projectIdsAt(process.cwd())),
     );
     // When the agent (the MCP client) disconnects cleanly, end every active session at once so the
     // HUD doesn't linger. (If the agent instead KILLS this process, the WS dies and the browser
@@ -695,7 +700,9 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
     createMcpServer(
       effectiveDeps,
       profile,
-      hasAnyProjectConnectedBefore(reticleStateHome(), port, projectIdsAt(process.cwd())),
+      // See the sibling call in `start`: a live session outweighs empty/stale durable memory (#1138).
+      bridge.sessions.count() > 0 ||
+        hasAnyProjectConnectedBefore(reticleStateHome(), port, projectIdsAt(process.cwd())),
     ),
   );
   // `reticle drive <url>` when this daemon already owns the port: it asks HERE instead of trying to
