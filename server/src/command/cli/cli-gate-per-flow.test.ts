@@ -246,4 +246,70 @@ describe('handleGate reads coverage per flow, not from the single newest run', (
     expect(out.uncovered).toEqual(['flow-a']);
     expect(out.pass).toBe(false);
   });
+
+  const bothGreen = async (): Promise<void> => {
+    const store = new RunStore(createNodeFileSystem(), root);
+    await store.write(
+      runAt('both', 1000, [
+        flowResult('flow-a', RunFlowStatus.PASS),
+        flowResult('flow-b', RunFlowStatus.PASS),
+      ]),
+    );
+  };
+
+  it('a repo-root-relative changed path still finds the flow own package-relative source', async () => {
+    await stampSources({ 'flow-a': 'src/app.ts', 'flow-b': 'src/other.ts' });
+    await bothGreen();
+    await touch('src/app.ts', 1500);
+    const out = await gateOutput(['web/src/app.ts']);
+    expect(out.uncovered).toEqual(['flow-a']);
+  });
+
+  it('an absolute source stamp matches a repo-relative changed path', async () => {
+    await stampSources({ 'flow-a': join(dir, 'src', 'app.ts'), 'flow-b': 'src/other.ts' });
+    await bothGreen();
+    await touch('src/app.ts', 1500);
+    const out = await gateOutput(['src/app.ts']);
+    expect(out.uncovered).toEqual(['flow-a']);
+  });
+
+  it('watch keeps a flow stale from the source mtime on disk, after an unrelated save and at startup', async () => {
+    await stampSources({ 'flow-a': 'src/app.ts', 'flow-b': 'src/other.ts' });
+    await bothGreen();
+    await touch('src/other.ts', 500);
+    await touch('src/app.ts', 1500);
+    const fs = createNodeFileSystem();
+    const flows = [
+      {
+        name: 'flow-a',
+        steps: [
+          {
+            tool: 'reticle_act',
+            anchor: { kind: 'testid', value: 'a' },
+            source: { file: 'src/app.ts', line: 1 },
+          },
+        ],
+      },
+      {
+        name: 'flow-b',
+        steps: [
+          {
+            tool: 'reticle_act',
+            anchor: { kind: 'testid', value: 'b' },
+            source: { file: 'src/other.ts', line: 1 },
+          },
+        ],
+      },
+    ];
+    const status = async (affected: string[], changed: string[]): Promise<string> => {
+      stderr.length = 0;
+      await emitBuddyStatus(fs, root, flows as never, affected, changed);
+      const line = stderr.map((s) => s.trim()).find((s) => s.includes('"event":"reticle_buddy"'));
+      return (JSON.parse(line ?? '{}') as { status: string }).status;
+    };
+    // Startup: nothing changed in a batch, yet the earlier edit to flow-a's source still shows.
+    expect(await status([], [])).toBe('✗ 1 deviation: flow-a · 1 nominal');
+    // An unrelated save does not make it nominal again.
+    expect(await status(['flow-b'], ['src/other.ts'])).toBe('✗ 1 deviation: flow-a · 1 nominal');
+  });
 });

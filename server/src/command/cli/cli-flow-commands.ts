@@ -20,6 +20,7 @@ import {
   toFlowSources,
   type NamedFlow,
 } from '@/language/flows/change/flow-sources.js';
+import { sourceMatchesChange } from '@/language/flows/change/affected.js';
 import { isInteractiveSource, unflowedFiles } from '@/language/flows/change/affected.js';
 import {
   LedgerStore,
@@ -96,11 +97,14 @@ export async function emitBuddyStatus(
   changed: readonly string[],
 ): Promise<void> {
   try {
-    const passingNames = await currentPassing(fs, reticleRoot, flows, affected, changed);
+    const current = await currentPassing(fs, reticleRoot, flows, affected, changed, true);
+    const passingNames = current.passing;
     const quarantined = await new FlakeStore(fs, reticleRoot).flakyFlows();
     const flaky = new Set(quarantined);
     // A deviation is an at-risk flow with no passing artifact — and a quarantined flake is not a deviation.
-    const deviations = affected.filter((n) => !passingNames.has(n) && !flaky.has(n));
+    const deviations = [...new Set([...affected, ...current.stale])].filter(
+      (n) => !passingNames.has(n) && !flaky.has(n),
+    );
     log('reticle_buddy', {
       status: formatBuddyStatus({
         total: flows.length,
@@ -215,25 +219,47 @@ function changedFileModifiedAt(cwd: string, file: string): number | undefined {
   return atChangedPath(cwd, file, (path) => statSync(path).mtimeMs);
 }
 
-/** Passing flows; an affected flow's pass must postdate edits to its sources. */
+/**
+ * Which flows still count as passing, and which have a recorded pass that an edit has made stale.
+ *
+ * A flow's newest pass counts only if its run is later than the newest mtime of the files that
+ * belong to THAT flow: the changed files that match its sources (the same suffix rule as
+ * `affectedFlows`, so a repo-root path, a package-relative stamp and an absolute stamp all agree).
+ * Edits outside its sources never invalidate it. A flow with no recorded sources cannot be
+ * attributed, so every changed file counts for it. A changed file that is gone fails closed.
+ *
+ * `onDisk` is for the long-running watcher, which sees only one debounce batch at a time: it also
+ * reads the newest mtime of the flow's own sources on disk, so an earlier edit keeps the flow stale
+ * after an unrelated save or a restart. A source that is simply missing is ignored there, since no
+ * change reported it. Without `onDisk` only `affected` flows are judged (the gate's contract).
+ */
 async function currentPassing(
   fs: FileSystemPort,
   root: string,
   flows: readonly NamedFlow[],
   affected: readonly string[],
   changed: readonly string[],
-): Promise<Set<string>> {
-  const sourcesOf = new Map(toFlowSources(flows).map((f) => [f.name, f.sources]));
+  onDisk = false,
+): Promise<{ passing: Set<string>; stale: Set<string> }> {
+  const sourcesOf = new Map(toFlowSources(flows).map((f) => [f.name, f.sources ?? []]));
   const passing = new Set<string>();
+  const stale = new Set<string>();
+  const cwd = process.cwd();
   for (const [name, at] of await new RunStore(fs, root).passingFlowTimes()) {
     const sources = sourcesOf.get(name) ?? [];
-    const own = 0 === sources.length ? changed : changed.filter((f) => sources.includes(f));
-    const stale =
-      affected.includes(name) &&
-      own.some((f) => !((changedFileModifiedAt(process.cwd(), f) ?? Infinity) < at));
-    if (!stale) passing.add(name);
+    const reported =
+      0 === sources.length ? changed : changed.filter((f) => sourceMatchesChange(f, sources));
+    const diskTimes = onDisk ? sources.flatMap((f) => changedFileModifiedAt(cwd, f) ?? []) : [];
+    const judged = affected.includes(name) || (onDisk && sources.length > 0);
+    const newerThanPass = (t: number | undefined): boolean => !((t ?? Infinity) < at);
+    const isStale =
+      judged &&
+      (reported.some((f) => newerThanPass(changedFileModifiedAt(cwd, f))) ||
+        diskTimes.some(newerThanPass));
+    if (isStale) stale.add(name);
+    else passing.add(name);
   }
-  return passing;
+  return { passing, stale };
 }
 
 export async function handleGate(
@@ -251,7 +277,9 @@ export async function handleGate(
     const changed = (await resolveChangedFiles(files, since, process.cwd())).files;
     const allFlows = await loadNamedFlows(fs, reticleRoot, readProjectId(process.cwd()));
     const affected = affectedSavedFlows(allFlows, changed).affected;
-    const passing = [...(await currentPassing(fs, reticleRoot, allFlows, affected, changed))];
+    const passing = [
+      ...(await currentPassing(fs, reticleRoot, allFlows, affected, changed)).passing,
+    ];
     const flaky = await new FlakeStore(fs, reticleRoot).flakyFlows();
     // Anti-reward-hacking: diff each flow's CURRENT assertions against what it asserted the last
     // time it passed. A mustHold that dropped from a real consequence to a fakeable presence check is a
