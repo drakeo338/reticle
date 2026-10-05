@@ -19,6 +19,11 @@ import {
 import { mutationPortFor, type NetworkMutationPort } from '@/portal/input/network-mutation.js';
 import type { Perturbation } from '@reticlehq/core';
 import { z } from 'zod';
+import {
+  connectedUnderOtherIdNote,
+  resolveLeasedSessionId,
+  sessionParamOf,
+} from './lease-session-match.js';
 import { leaseNotConnectedHint, type LeaseEvidence } from './lease-hint.js';
 import { probeLeaseAlive, tabHidden } from './lease-readiness.js';
 import { probeSdkMarker } from './gaps/sdk-marker-probe.js';
@@ -176,26 +181,7 @@ function newLeaseId(): string {
   return `lease-${uuid}`;
 }
 
-/**
- * The session a lease's tab actually registered as, or undefined while nothing has.
- *
- * Normally that is the lease id: `appendReticleParams` stamps `__reticle_session` on the URL and the
- * SDK adopts it. An app that passes an explicit `session` to `connect()` keeps its own name instead,
- * which is legitimate — a single-app fixture does it deliberately so a battery can address it by a
- * known id. Matching on the lease id alone could never see those tabs, so the lease reported
- * `ready: false` and a hint blaming a port mismatch while the session was connected and driveable.
- *
- * The URL marker is the evidence, and it is what makes this safe: two concurrent leases on one origin
- * carry different markers, so neither can adopt the other's tab. Parsed rather than substring-matched,
- * so `lease-abc` cannot claim `lease-abcdef`.
- */
-export function resolveLeasedSessionId(
-  sessions: { get: (id: string) => unknown; all: () => { id: string; url?: string }[] },
-  leaseId: string,
-): string | undefined {
-  if (sessions.get(leaseId) !== undefined) return leaseId;
-  return sessions.all().find((s) => sessionParamOf(s.url) === leaseId)?.id;
-}
+export { resolveLeasedSessionId };
 
 /**
  * Carry a claimed identity across a navigation.
@@ -223,15 +209,6 @@ function projectParamOf(url: string | undefined): string | undefined {
   if (url === undefined) return undefined;
   try {
     return new URL(url).searchParams.get(RETICLE_URL_PARAM.PROJECT) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function sessionParamOf(url: string | undefined): string | undefined {
-  if (url === undefined) return undefined;
-  try {
-    return new URL(url).searchParams.get(RETICLE_URL_PARAM.SESSION) ?? undefined;
   } catch {
     return undefined;
   }
@@ -271,6 +248,8 @@ export async function acquireLeasedSession(
     dialFailureUrl?: (sessionId: string) => string | undefined;
     /** Optional so a test double need not implement it; the real pool always does. */
     alias?: (registeredId: string, leaseId: string) => void;
+    /** Where the lease's page is now. Optional so a test double need not implement it. */
+    pageUrl?: (sessionId: string) => string | undefined;
   },
   sessions: { get: (id: string) => unknown; all: () => { id: string; url?: string }[] },
   url: string,
@@ -294,7 +273,11 @@ export async function acquireLeasedSession(
   // in the run at a session that does not exist.
   let registeredId: string | undefined;
   await connectOrInject(lease, () => {
-    registeredId = resolveLeasedSessionId(sessions, lease.sessionId);
+    registeredId = resolveLeasedSessionId(
+      sessions,
+      lease.sessionId,
+      pool.pageUrl?.(lease.sessionId),
+    );
     return registeredId !== undefined;
   });
   if (registeredId !== undefined) pool.alias?.(registeredId, lease.sessionId);
@@ -519,7 +502,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
         // context — the tab-poisoning this branch exists to prevent, reached through the branch
         // itself. It bites when the first acquire returned `ready: false`, since the mint path only
         // aliases once its wait has resolved, so nothing recorded the app's own name (#692).
-        const resolved = resolveLeasedSessionId(deps.sessions, existing);
+        const resolved = resolveLeasedSessionId(deps.sessions, existing, pool.pageUrl?.(existing));
         if (resolved !== undefined) {
           // The other name this lease answers to, told to the pool exactly as the mint path tells it.
           // A no-op when the id resolved to itself; load-bearing when it did not, because every later
@@ -585,7 +568,11 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
       // and the id we hand back has to be the one the agent can actually drive.
       let registeredId: string | undefined;
       const { ready, zeroInstall } = await connectOrInject(lease, () => {
-        registeredId = resolveLeasedSessionId(deps.sessions, lease.sessionId);
+        registeredId = resolveLeasedSessionId(
+          deps.sessions,
+          lease.sessionId,
+          pool.pageUrl?.(lease.sessionId),
+        );
         return registeredId !== undefined;
       });
       // Tell the pool the other name this lease answers to. Every later touch and release arrives
@@ -642,7 +629,11 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
         ...hintOf(
           ready
             ? undefined
-            : await notConnectedHint(deps, url, pool.dialFailureUrl?.(lease.sessionId)),
+            : `${connectedUnderOtherIdNote(
+                deps.sessions.all(),
+                lease.sessionId,
+                pool.pageUrl?.(lease.sessionId),
+              )}${await notConnectedHint(deps, url, pool.dialFailureUrl?.(lease.sessionId))}`,
           ready ? await notificationReadBack(pool, lease.sessionId, permissions) : undefined,
         ),
       };

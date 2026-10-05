@@ -1,0 +1,3 @@
+### Fixed
+
+- **`@reticlehq/server`: `reticle_lease acquire` on a URL the server redirects returned an id that names no session.** An auth gate or locale redirect drops the `__reticle_session` query string before the SDK loads, so the leased tab connected under its own id while the lease reported `ready: false` and handed back a `lease-…` id every tool refused. The lease now also adopts the one unmarked session that sits on its page's current URL, so it returns the connected session's id. When it still cannot match, the hint names the id the tab connected under and the URL. Refs [#1352](https://github.com/reticlehq/reticle/issues/1352).

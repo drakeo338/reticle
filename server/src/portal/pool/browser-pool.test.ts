@@ -45,6 +45,11 @@ class FakePage implements PooledPage {
     return this.failFront ? Promise.reject(new Error('target closed')) : Promise.resolve();
   }
   disposedScripts = 0;
+  /** Where the page "ended up" after a redirect; unset until a test sets it. */
+  currentUrl: string | undefined;
+  url(): string {
+    return this.currentUrl ?? '';
+  }
   evaluated: string[] = [];
   evaluate(script: string): Promise<unknown> {
     this.callOrder.push('evaluate');
@@ -430,6 +435,16 @@ describe('BrowserPool', () => {
 
     await pool.release('next-smoke');
     expect(pool.activeCount(), 'releasing by the name the agent was given must work').toBe(0);
+  });
+
+  it('pageUrl reports where the lease page is, and nothing for an id that is not a lease', async () => {
+    const { launch, browsers } = fakeLauncher();
+    const pool = new BrowserPool(launch, { maxContexts: 4, genSessionId: counterIds() });
+    const lease = await pool.acquire('http://localhost:3100/private', { sessionId: 'lease-xyz' });
+    const page = browsers[0]?.contexts[0]?.pages[0];
+    if (page !== undefined) page.currentUrl = 'http://localhost:3100/login';
+    expect(pool.pageUrl('never-seen')).toBe(undefined);
+    expect(pool.pageUrl(lease.sessionId)).toBe('http://localhost:3100/login');
   });
 
   it('an unknown alias touches nothing rather than throwing', () => {

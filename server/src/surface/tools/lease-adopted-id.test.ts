@@ -23,6 +23,7 @@
 import { describe, expect, it } from 'vitest';
 import { RETICLE_URL_PARAM } from '@reticlehq/core';
 import { resolveLeasedSessionId } from './lease-tools.js';
+import { connectedUnderOtherIdNote } from './lease-session-match.js';
 
 const LEASE_ID = 'lease-abc';
 const leaseUrl = (base: string): string =>
@@ -77,5 +78,59 @@ describe('a lease resolves to the session its tab actually registered', () => {
       { id: 'app', url: `http://localhost:3100/?${RETICLE_URL_PARAM.SESSION}=lease-abcdef` },
     ]);
     expect(resolveLeasedSessionId(live, LEASE_ID)).toBe(undefined);
+  });
+
+  describe('a server redirect dropped the marker from the URL', () => {
+    // `/private` 302s to `/login`, the query string goes with it, and the SDK dials as itself. The
+    // only evidence left is the lease's own page: it is on `/login`, and so is exactly one session.
+    const PAGE = 'http://localhost:3100/login';
+
+    it('adopts the session that is on the lease page URL', () => {
+      const live = sessions([{ id: 'redirected', url: PAGE }]);
+      expect(resolveLeasedSessionId(live, LEASE_ID, PAGE)).toBe('redirected');
+    });
+
+    it('does not adopt a session on a different URL than the lease page', () => {
+      const live = sessions([{ id: 'humans-tab', url: 'http://localhost:3100/other' }]);
+      expect(resolveLeasedSessionId(live, LEASE_ID, PAGE)).toBe(undefined);
+    });
+
+    it('does not guess when two sessions sit on the lease page URL', () => {
+      const live = sessions([
+        { id: 'a', url: PAGE },
+        { id: 'b', url: PAGE },
+      ]);
+      expect(resolveLeasedSessionId(live, LEASE_ID, PAGE)).toBe(undefined);
+    });
+
+    it('does not take a tab that another lease marked', () => {
+      const live = sessions([
+        { id: 'theirs', url: `${PAGE}?${RETICLE_URL_PARAM.SESSION}=lease-zzz` },
+      ]);
+      expect(
+        resolveLeasedSessionId(live, LEASE_ID, `${PAGE}?${RETICLE_URL_PARAM.SESSION}=lease-zzz`),
+      ).toBe(undefined);
+    });
+
+    it('matches nothing when the pool cannot report the page URL', () => {
+      const live = sessions([{ id: 'redirected', url: PAGE }]);
+      expect(resolveLeasedSessionId(live, LEASE_ID)).toBe(undefined);
+    });
+  });
+
+  describe('when a lease still matches nothing', () => {
+    const PAGE = 'http://localhost:3100/login';
+
+    it('names the id the tab connected under and the url', () => {
+      const note = connectedUnderOtherIdNote([{ id: 'redirected', url: PAGE }], LEASE_ID, PAGE);
+      expect(note).toContain('redirected');
+      expect(note).toContain(PAGE);
+      expect(note).toContain(LEASE_ID);
+    });
+
+    it('says nothing when no session sits on the page', () => {
+      expect(connectedUnderOtherIdNote([], LEASE_ID, PAGE)).toBe('');
+      expect(connectedUnderOtherIdNote([{ id: 'x', url: PAGE }], LEASE_ID, undefined)).toBe('');
+    });
   });
 });

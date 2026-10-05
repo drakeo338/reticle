@@ -601,6 +601,15 @@ export class BrowserPool {
     return this.#active.get(this.#leaseIdOf(sessionId))?.lastDialogMessage;
   }
 
+  /**
+   * Where this lease's page is right now, after any server redirect. Undefined when the id is not a
+   * lease or the page cannot say. A leased page that was redirected has lost the `__reticle_session`
+   * marker, and this is what still ties it to the session its SDK registered.
+   */
+  pageUrl(sessionId: string): string | undefined {
+    return this.#active.get(this.#leaseIdOf(sessionId))?.page.url?.();
+  }
+
   /** Close every context and the browser. Pending waiters are rejected (the pool is terminal now). */
   async shutdown(): Promise<void> {
     this.#closed = true; // set first so any woken waiter rejects instead of relaunching a browser
