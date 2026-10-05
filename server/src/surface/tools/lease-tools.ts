@@ -20,6 +20,7 @@ import { mutationPortFor, type NetworkMutationPort } from '@/portal/input/networ
 import type { Perturbation } from '@reticlehq/core';
 import { z } from 'zod';
 import {
+  connectedIds,
   connectedUnderOtherIdNote,
   resolveLeasedSessionId,
   sessionParamOf,
@@ -257,6 +258,7 @@ export async function acquireLeasedSession(
   seedStorage?: SeedStorage,
 ): Promise<{ sessionId: string; release: () => Promise<void> }> {
   const sessionId = newLeaseId();
+  const before = connectedIds(sessions);
   let lease;
   try {
     lease = await pool.acquire(appendReticleParams(url, sessionId, projectId), {
@@ -277,6 +279,7 @@ export async function acquireLeasedSession(
       sessions,
       lease.sessionId,
       pool.pageUrl?.(lease.sessionId),
+      before,
     );
     return registeredId !== undefined;
   });
@@ -502,7 +505,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
         // context — the tab-poisoning this branch exists to prevent, reached through the branch
         // itself. It bites when the first acquire returned `ready: false`, since the mint path only
         // aliases once its wait has resolved, so nothing recorded the app's own name (#692).
-        const resolved = resolveLeasedSessionId(deps.sessions, existing, pool.pageUrl?.(existing));
+        const resolved = resolveLeasedSessionId(deps.sessions, existing);
         if (resolved !== undefined) {
           // The other name this lease answers to, told to the pool exactly as the mint path tells it.
           // A no-op when the id resolved to itself; load-bearing when it did not, because every later
@@ -543,6 +546,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
         await pool.release(existing);
       }
       const sessionId = newLeaseId();
+      const before = connectedIds(deps.sessions);
       const navUrl = appendReticleParams(url, sessionId, projectId, hud);
       let lease;
       try {
@@ -572,6 +576,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
           deps.sessions,
           lease.sessionId,
           pool.pageUrl?.(lease.sessionId),
+          before,
         );
         return registeredId !== undefined;
       });
@@ -633,6 +638,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
                 deps.sessions.all(),
                 lease.sessionId,
                 pool.pageUrl?.(lease.sessionId),
+                before,
               )}${await notConnectedHint(deps, url, pool.dialFailureUrl?.(lease.sessionId))}`,
           ready ? await notificationReadBack(pool, lease.sessionId, permissions) : undefined,
         ),

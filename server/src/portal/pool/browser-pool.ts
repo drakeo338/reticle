@@ -603,11 +603,19 @@ export class BrowserPool {
 
   /**
    * Where this lease's page is right now, after any server redirect. Undefined when the id is not a
-   * lease or the page cannot say. A leased page that was redirected has lost the `__reticle_session`
-   * marker, and this is what still ties it to the session its SDK registered.
+   * lease, the page cannot say, or another live lease's page is at the same URL. A leased page that
+   * was redirected has lost the `__reticle_session` marker, and this is what still ties it to the
+   * session its SDK registered; two leases redirected to one login page would otherwise each claim
+   * whichever session connected first.
    */
   pageUrl(sessionId: string): string | undefined {
-    return this.#active.get(this.#leaseIdOf(sessionId))?.page.url?.();
+    const leaseId = this.#leaseIdOf(sessionId);
+    const url = this.#active.get(leaseId)?.page.url?.();
+    if (url === undefined) return undefined;
+    for (const [id, other] of this.#active) {
+      if (id !== leaseId && other.page.url?.() === url) return undefined;
+    }
+    return url;
   }
 
   /** Close every context and the browser. Pending waiters are rejected (the pool is terminal now). */

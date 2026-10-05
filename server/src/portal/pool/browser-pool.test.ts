@@ -447,6 +447,23 @@ describe('BrowserPool', () => {
     expect(pool.pageUrl(lease.sessionId)).toBe('http://localhost:3100/login');
   });
 
+  it('pageUrl is withheld while another live lease is on the same URL', async () => {
+    // Two leases redirected to one login page cannot be told apart by URL; each would claim the
+    // first session to connect.
+    const { launch, browsers } = fakeLauncher();
+    const pool = new BrowserPool(launch, { maxContexts: 4, genSessionId: counterIds() });
+    const a = await pool.acquire('http://localhost:3100/a', { sessionId: 'lease-a' });
+    const b = await pool.acquire('http://localhost:3100/b', { sessionId: 'lease-b' });
+    const pages = browsers[0]?.contexts.map((c) => c.pages[0]);
+    for (const page of pages ?? [])
+      if (page !== undefined) page.currentUrl = 'http://localhost:3100/login';
+    expect(pool.pageUrl(a.sessionId)).toBe(undefined);
+    expect(pool.pageUrl(b.sessionId)).toBe(undefined);
+    const second = pages?.[1];
+    if (second !== undefined) second.currentUrl = 'http://localhost:3100/other';
+    expect(pool.pageUrl(a.sessionId)).toBe('http://localhost:3100/login');
+  });
+
   it('an unknown alias touches nothing rather than throwing', () => {
     const { launch } = fakeLauncher();
     const pool = new BrowserPool(launch, { maxContexts: 4, genSessionId: counterIds() });

@@ -22,8 +22,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { RETICLE_URL_PARAM } from '@reticlehq/core';
-import { resolveLeasedSessionId } from './lease-tools.js';
-import { connectedUnderOtherIdNote } from './lease-session-match.js';
+import { acquireLeasedSession, LEASE_ACQUIRE_TOOL, resolveLeasedSessionId } from './lease-tools.js';
+import type { BrowserPool } from '@/portal/pool/browser-pool.js';
+import type { ToolDeps } from './tool-kit.js';
+import { connectedIds, connectedUnderOtherIdNote } from './lease-session-match.js';
 
 const LEASE_ID = 'lease-abc';
 const leaseUrl = (base: string): string =>
@@ -112,6 +114,23 @@ describe('a lease resolves to the session its tab actually registered', () => {
       ).toBe(undefined);
     });
 
+    it('does not adopt a tab that was already connected before this lease', () => {
+      // A person already has /login open and connected. The lease's own tab has not registered yet,
+      // so the human's tab is the only unmarked session on the page URL. Taking it would drive
+      // someone else's tab.
+      const live = sessions([{ id: 'humans-tab', url: PAGE }]);
+      expect(resolveLeasedSessionId(live, LEASE_ID, PAGE, connectedIds(live))).toBe(undefined);
+    });
+
+    it('adopts the new tab and not the pre-existing one on the same URL', () => {
+      const before = new Set(['humans-tab']);
+      const live = sessions([
+        { id: 'humans-tab', url: PAGE },
+        { id: 'redirected', url: PAGE },
+      ]);
+      expect(resolveLeasedSessionId(live, LEASE_ID, PAGE, before)).toBe('redirected');
+    });
+
     it('matches nothing when the pool cannot report the page URL', () => {
       const live = sessions([{ id: 'redirected', url: PAGE }]);
       expect(resolveLeasedSessionId(live, LEASE_ID)).toBe(undefined);
@@ -128,9 +147,103 @@ describe('a lease resolves to the session its tab actually registered', () => {
       expect(note).toContain(LEASE_ID);
     });
 
+    it('names no session when several sit on the page, since it cannot say which is the lease', () => {
+      const note = connectedUnderOtherIdNote(
+        [
+          { id: 'a', url: PAGE },
+          { id: 'b', url: PAGE },
+        ],
+        LEASE_ID,
+        PAGE,
+      );
+      expect(note).toBe('');
+    });
+
+    it('does not name a tab that was connected before the lease', () => {
+      const all = [{ id: 'humans-tab', url: PAGE }];
+      expect(connectedUnderOtherIdNote(all, LEASE_ID, PAGE, new Set(['humans-tab']))).toBe('');
+    });
+
     it('says nothing when no session sits on the page', () => {
       expect(connectedUnderOtherIdNote([], LEASE_ID, PAGE)).toBe('');
       expect(connectedUnderOtherIdNote([{ id: 'x', url: PAGE }], LEASE_ID, undefined)).toBe('');
     });
+  });
+});
+
+describe('acquire through a redirect', () => {
+  const REQUESTED = 'http://localhost:3100/private';
+  const LANDED = 'http://localhost:3100/login';
+
+  /** A pool double whose page ends up on `landed` after the navigation, as a server redirect does. */
+  function redirectingPool(
+    landed: string | undefined,
+    onAcquire: () => void = () => undefined,
+  ): {
+    pool: BrowserPool;
+    aliased: [string, string][];
+  } {
+    const aliased: [string, string][] = [];
+    const pool = {
+      acquire: (url: string, opts: { sessionId?: string } = {}) => {
+        onAcquire();
+        return Promise.resolve({
+          sessionId: opts.sessionId ?? 'gen',
+          url,
+          release: () => Promise.resolve(),
+        });
+      },
+      release: () => Promise.resolve(),
+      activeCount: () => 1,
+      queuedCount: () => 0,
+      leasedSessionIds: () => [],
+      leaseTtlMs: () => 300_000,
+      leaseIdOnOrigin: () => undefined,
+      touch: () => undefined,
+      alias: (registeredId: string, leaseId: string) => aliased.push([registeredId, leaseId]),
+      pageUrl: () => landed,
+    } as unknown as BrowserPool;
+    return { pool, aliased };
+  }
+
+  it('acquireLeasedSession returns the session the redirected tab registered', async () => {
+    // The tab's SDK connects while the lease navigates, so it is not in the pre-acquire snapshot.
+    const rows: FakeSession[] = [];
+    const { pool, aliased } = redirectingPool(LANDED, () =>
+      rows.push({ id: 'redirected', url: LANDED }),
+    );
+    const live = sessions(rows);
+    const got = await acquireLeasedSession(pool, live, REQUESTED);
+    expect(got.sessionId).toBe('redirected');
+    expect(aliased).toEqual([['redirected', expect.stringMatching(/^lease-/)]]);
+  });
+
+  it('acquireLeasedSession ignores a human tab that was already on the landing URL', async () => {
+    // Only the pre-existing tab is there, so the lease's own SDK never connected: the lease must not
+    // report the human's tab as its own.
+    const { pool, aliased } = redirectingPool(LANDED);
+    const live = sessions([{ id: 'humans-tab', url: LANDED }]);
+    const got = await acquireLeasedSession(pool, live, REQUESTED);
+    expect(got.sessionId).toMatch(/^lease-/);
+    expect(aliased).toEqual([]);
+  }, 20_000);
+
+  it('acquireLeasedSession keeps the lease id when the pool reports no page URL', async () => {
+    const rows: FakeSession[] = [];
+    const { pool } = redirectingPool(undefined, () => rows.push({ id: 'redirected', url: LANDED }));
+    const got = await acquireLeasedSession(pool, sessions(rows), REQUESTED);
+    expect(got.sessionId).toMatch(/^lease-/);
+  }, 20_000);
+
+  it('reticle_lease acquire reports ready with the connected id after a redirect', async () => {
+    const rows: FakeSession[] = [];
+    const { pool } = redirectingPool(LANDED, () => rows.push({ id: 'redirected', url: LANDED }));
+    const deps = { pool, sessions: sessions(rows) } as unknown as ToolDeps;
+    const out = (await LEASE_ACQUIRE_TOOL.handler(deps, { url: REQUESTED })) as Record<
+      string,
+      unknown
+    >;
+    expect(out['sessionId']).toBe('redirected');
+    expect(out['ready']).toBe(true);
   });
 });

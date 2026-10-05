@@ -32,42 +32,60 @@ export function sessionParamOf(url: string | undefined): string | undefined {
  * the marker never reaches the session. The last evidence left is the lease's own page: when the pool
  * can say where it is (`pageUrl`) and exactly one unmarked session sits on that URL, that session is
  * the lease's tab. Two sessions on it, or none, adopts nothing: a guess would drive someone else's tab.
+ *
+ * `before` is the ids already connected when the lease was acquired. None of those can be this lease's
+ * tab, so a person's own tab sitting on the same URL is never adopted.
  */
 export function resolveLeasedSessionId(
   sessions: { get: (id: string) => unknown; all: () => { id: string; url?: string }[] },
   leaseId: string,
   pageUrl?: string,
+  before?: ReadonlySet<string>,
 ): string | undefined {
   if (sessions.get(leaseId) !== undefined) return leaseId;
   const all = sessions.all();
   const marked = all.find((s) => sessionParamOf(s.url) === leaseId);
   if (marked !== undefined) return marked.id;
-  const onPage = sessionsOnUnmarkedPage(all, pageUrl);
+  const onPage = sessionsOnUnmarkedPage(all, pageUrl, before);
   return 1 === onPage.length ? onPage[0]?.id : undefined;
 }
 
-/** The sessions sitting on `pageUrl` that no lease marked. Empty when the page URL is unknown. */
+/** The ids of every session connected right now: take it before acquiring, pass it as `before`. */
+export function connectedIds(sessions: { all?: () => { id: string }[] }): Set<string> {
+  // `all` is optional only so a test double with a bare `get` still works; the real store has it.
+  return new Set((sessions.all?.() ?? []).map((s) => s.id));
+}
+
+/**
+ * The sessions sitting on `pageUrl` that no lease marked and that were not connected before the
+ * lease. Empty when the page URL is unknown.
+ */
 function sessionsOnUnmarkedPage(
   all: { id: string; url?: string }[],
   pageUrl: string | undefined,
+  before?: ReadonlySet<string>,
 ): { id: string; url?: string }[] {
   if (pageUrl === undefined) return [];
-  return all.filter((s) => s.url === pageUrl && sessionParamOf(s.url) === undefined);
+  return all.filter(
+    (s) => s.url === pageUrl && sessionParamOf(s.url) === undefined && before?.has(s.id) !== true,
+  );
 }
 
 /**
  * What to say when the lease matched no session but its page IS the address some session connected
  * from. The returned `sessionId` is then the lease id (release still needs it) and no tool accepts
- * it, so the hint has to name the id the tab did connect under. Empty when nothing sits there.
+ * it, so the hint has to name the id the tab did connect under. Empty unless exactly one session sits there.
  */
 export function connectedUnderOtherIdNote(
   all: { id: string; url?: string }[],
   leaseId: string,
   pageUrl: string | undefined,
+  before?: ReadonlySet<string>,
 ): string {
-  const onPage = sessionsOnUnmarkedPage(all, pageUrl);
-  if (pageUrl === undefined || 0 === onPage.length) return '';
-  const ids = onPage.map((s) => s.id).join(', ');
-  const which = 1 === onPage.length ? `session ${ids} is` : `sessions ${ids} are`;
-  return `The lease id ${leaseId} names no session, but the leased tab is at ${pageUrl} and ${which} connected there. Drive that id, not the lease id; release with the lease id. `;
+  const onPage = sessionsOnUnmarkedPage(all, pageUrl, before);
+  const [only] = onPage;
+  // Several sessions on one URL cannot be told apart, so none is named: pointing at one would be
+  // the guess the resolver refuses to make.
+  if (pageUrl === undefined || only === undefined || 1 !== onPage.length) return '';
+  return `The lease id ${leaseId} names no session, but the leased tab is at ${pageUrl} and session ${only.id} connected there. Drive ${only.id}, not the lease id; release with the lease id. `;
 }
