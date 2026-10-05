@@ -15,7 +15,14 @@ interface W {
   history: { replaceState(...a: unknown[]): void };
 }
 
-/** Init script restoring the marker a redirect dropped; must stay self-contained. */
+/**
+ * Init script restoring the marker a server redirect dropped, so the SDK registers under the lease id.
+ * It runs only in pages of the lease's own browser context, so a person's tab at the same URL never
+ * carries the marker and is never adopted. It writes only in the top frame, only on the lease's own
+ * target origin (never an identity provider's or any third party's URL), and the pool installs it
+ * only when the navigated URL's marker matches this lease's id. Must stay self-contained: Playwright
+ * serialises the function source into the page.
+ */
 export function stampLeaseMarker(arg: LeaseMarkerArg): void {
   const win = (globalThis as unknown as { window?: W }).window;
   if (win === undefined || win.top !== win || win.location.origin !== arg.targetOrigin) return;
