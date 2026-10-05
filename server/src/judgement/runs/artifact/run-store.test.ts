@@ -151,6 +151,12 @@ describe('RunStore — temp-dir filesystem, never touches the repo', () => {
     expect(latest.get('b')?.status).toBe(RunFlowStatus.PASS);
   });
 
+  it('latestPerFlow breaks a tie between runs of equal time on the run id, whatever the write order', async () => {
+    await store.write(withFlows('run-b', 2000, [flowResult('a', RunFlowStatus.PASS)]));
+    await store.write(withFlows('run-a', 2000, [flowResult('a', RunFlowStatus.FAIL)]));
+    expect((await store.latestPerFlow()).get('a')?.status).toBe(RunFlowStatus.PASS);
+  });
+
   it('passingFlowNames counts pass and heal from each flow newest result (the status-line rule)', async () => {
     await store.write(
       withFlows('old', 1000, [

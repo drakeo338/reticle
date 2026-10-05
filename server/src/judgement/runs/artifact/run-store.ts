@@ -195,14 +195,18 @@ export class RunStore {
    * replay.
    */
   async latestPerFlow(): Promise<Map<string, RunFlowResult>> {
-    const newest = new Map<string, { at: number; result: RunFlowResult }>();
+    const newest = new Map<string, { at: number; id: string; result: RunFlowResult }>();
     for (const id of await this.list()) {
       const read = await this.read(id);
       if (!read.ok) continue;
       for (const result of read.run.flows) {
         const seen = newest.get(result.name);
-        if (seen === undefined || read.run.createdAt > seen.at) {
-          newest.set(result.name, { at: read.run.createdAt, result });
+        // Equal times break on the run id, so the answer never depends on the order `list()` returns.
+        const newer =
+          seen !== undefined &&
+          (read.run.createdAt > seen.at || (read.run.createdAt === seen.at && id > seen.id));
+        if (seen === undefined || newer) {
+          newest.set(result.name, { at: read.run.createdAt, id, result });
         }
       }
     }
