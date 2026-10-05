@@ -48,6 +48,12 @@ interface RunStoreOptions {
 /** A request older than this is about some other task, not the run being written now. */
 const REQUEST_RELEVANT_MS = 6 * 60 * 60 * 1000;
 
+interface FlowAt {
+  result: RunFlowResult;
+  createdAt: number;
+  id: string;
+}
+
 export class RunStore {
   readonly #fs: FileSystemPort;
   readonly #root: string;
@@ -188,33 +194,27 @@ export class RunStore {
     return best;
   }
 
-  /** Newest result per flow name across all readable runs; flowless runs neither supply nor erase one. */
-  async latestPerFlow(): Promise<Map<string, { result: RunFlowResult; createdAt: number }>> {
-    const newest = new Map<string, { result: RunFlowResult; createdAt: number; id: string }>();
+  async latestPerFlow(): Promise<Map<string, FlowAt>> {
+    const newest = new Map<string, FlowAt>();
     for (const id of await this.list()) {
       const read = await this.read(id);
       if (!read.ok) continue;
+      const createdAt = read.run.createdAt;
       for (const result of read.run.flows) {
-        const seen = newest.get(result.name);
-        const newer =
-          seen !== undefined &&
-          (read.run.createdAt > seen.createdAt ||
-            (read.run.createdAt === seen.createdAt && id > seen.id));
-        if (seen === undefined || newer) {
-          newest.set(result.name, { result, createdAt: read.run.createdAt, id });
+        const s = newest.get(result.name);
+        if (!s || createdAt > s.createdAt || (createdAt === s.createdAt && id > s.id)) {
+          newest.set(result.name, { result, createdAt, id });
         }
       }
     }
     return newest;
   }
 
-  /** Flows whose newest result passes by the gate's rule (creditedNames), with that run's time. */
   async passingFlowTimes(): Promise<Map<string, number>> {
     const passing = new Map<string, number>();
     for (const { result, createdAt } of (await this.latestPerFlow()).values()) {
-      for (const name of creditedNames([result])) {
+      for (const name of creditedNames([result]))
         passing.set(name, Math.max(passing.get(name) ?? createdAt, createdAt));
-      }
     }
     return passing;
   }

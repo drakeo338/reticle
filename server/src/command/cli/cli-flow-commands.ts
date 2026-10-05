@@ -96,13 +96,7 @@ export async function emitBuddyStatus(
   changed: readonly string[],
 ): Promise<void> {
   try {
-    const passingNames = currentPassing(
-      await new RunStore(fs, reticleRoot).passingFlowTimes(),
-      flows,
-      affected,
-      changed,
-      process.cwd(),
-    );
+    const passingNames = await currentPassing(fs, reticleRoot, flows, affected, changed);
     const quarantined = await new FlakeStore(fs, reticleRoot).flakyFlows();
     const flaky = new Set(quarantined);
     // A deviation is an at-risk flow with no passing artifact — and a quarantined flake is not a deviation.
@@ -221,29 +215,23 @@ function changedFileModifiedAt(cwd: string, file: string): number | undefined {
   return atChangedPath(cwd, file, (path) => statSync(path).mtimeMs);
 }
 
-/**
- * Flows passing now. An affected flow's pass counts only if newer than every changed file in its own
- * sources (all changed files when it has none); a missing changed file fails closed.
- */
-function currentPassing(
-  passingAt: ReadonlyMap<string, number>,
+/** Passing flows; an affected flow's pass must postdate edits to its sources. */
+async function currentPassing(
+  fs: FileSystemPort,
+  root: string,
   flows: readonly NamedFlow[],
   affected: readonly string[],
   changed: readonly string[],
-  cwd: string,
-): Set<string> {
-  const affectedSet = new Set(affected);
+): Promise<Set<string>> {
   const sourcesOf = new Map(toFlowSources(flows).map((f) => [f.name, f.sources]));
   const passing = new Set<string>();
-  for (const [name, at] of passingAt) {
-    if (!affectedSet.has(name)) {
-      passing.add(name);
-      continue;
-    }
-    const sources = new Set(sourcesOf.get(name) ?? []);
-    const relevant = 0 === sources.size ? changed : changed.filter((f) => sources.has(f));
-    const times = relevant.map((f) => changedFileModifiedAt(cwd, f));
-    if (times.every((t) => t !== undefined && at > t)) passing.add(name);
+  for (const [name, at] of await new RunStore(fs, root).passingFlowTimes()) {
+    const sources = sourcesOf.get(name) ?? [];
+    const own = 0 === sources.length ? changed : changed.filter((f) => sources.includes(f));
+    const stale =
+      affected.includes(name) &&
+      own.some((f) => !((changedFileModifiedAt(process.cwd(), f) ?? Infinity) < at));
+    if (!stale) passing.add(name);
   }
   return passing;
 }
@@ -263,15 +251,7 @@ export async function handleGate(
     const changed = (await resolveChangedFiles(files, since, process.cwd())).files;
     const allFlows = await loadNamedFlows(fs, reticleRoot, readProjectId(process.cwd()));
     const affected = affectedSavedFlows(allFlows, changed).affected;
-    const passing = [
-      ...currentPassing(
-        await new RunStore(fs, reticleRoot).passingFlowTimes(),
-        allFlows,
-        affected,
-        changed,
-        process.cwd(),
-      ),
-    ];
+    const passing = [...(await currentPassing(fs, reticleRoot, allFlows, affected, changed))];
     const flaky = await new FlakeStore(fs, reticleRoot).flakyFlows();
     // Anti-reward-hacking: diff each flow's CURRENT assertions against what it asserted the last
     // time it passed. A mustHold that dropped from a real consequence to a fakeable presence check is a
