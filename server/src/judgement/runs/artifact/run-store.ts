@@ -189,32 +189,39 @@ export class RunStore {
   }
 
   /**
-   * The newest recorded result for each flow name, taken across every readable run. A run that
-   * carries no flows (a drive or an export) says nothing about any flow, so it can neither supply
-   * nor erase a result: judging coverage from `latest()` alone let one such run hide every earlier
-   * replay.
+   * The newest recorded result for each flow name, taken across every readable run, with the time
+   * of the run it came from. A run that carries no flows (a drive or an export) says nothing about
+   * any flow, so it can neither supply nor erase a result: judging coverage from `latest()` alone
+   * let one such run hide every earlier replay. Equal times keep the first result seen.
    */
-  async latestPerFlow(): Promise<Map<string, RunFlowResult>> {
-    const newest = new Map<string, { at: number; result: RunFlowResult }>();
+  async latestPerFlow(): Promise<Map<string, { result: RunFlowResult; createdAt: number }>> {
+    const newest = new Map<string, { result: RunFlowResult; createdAt: number }>();
     for (const id of await this.list()) {
       const read = await this.read(id);
       if (!read.ok) continue;
       for (const result of read.run.flows) {
         const seen = newest.get(result.name);
-        if (seen === undefined || read.run.createdAt > seen.at) {
-          newest.set(result.name, { at: read.run.createdAt, result });
+        if (seen === undefined || read.run.createdAt > seen.createdAt) {
+          newest.set(result.name, { result, createdAt: read.run.createdAt });
         }
       }
     }
-    return new Map([...newest].map(([name, { result }]) => [name, result]));
+    return newest;
   }
 
   /**
-   * Names of the flows whose newest result counts as passing under the gate's rule (`creditedNames`:
-   * a pass or a heal, and a template credited by a proving copy). The one coverage rule.
+   * The flows whose newest result counts as passing under the gate's rule (`creditedNames`: a pass
+   * or a heal, and a template credited by a proving copy), each with the time of that result. The
+   * one coverage rule; the time lets a caller refuse a pass that predates an edit.
    */
-  async passingFlowNames(): Promise<Set<string>> {
-    return new Set(creditedNames([...(await this.latestPerFlow()).values()]));
+  async passingFlowTimes(): Promise<Map<string, number>> {
+    const passing = new Map<string, number>();
+    for (const { result, createdAt } of (await this.latestPerFlow()).values()) {
+      for (const name of creditedNames([result])) {
+        passing.set(name, Math.max(passing.get(name) ?? createdAt, createdAt));
+      }
+    }
+    return passing;
   }
 
   /**
