@@ -29,25 +29,17 @@ export function sessionParamOf(url: string | undefined): string | undefined {
  * so `lease-abc` cannot claim `lease-abcdef`.
  *
  * A server redirect (an auth gate, a locale redirect) drops the query string before the SDK loads, so
- * the marker never reaches the session. The last evidence left is the lease's own page: when the pool
- * can say where it is (`pageUrl`) and exactly one unmarked session sits on that URL, that session is
- * the lease's tab. Two sessions on it, or none, adopts nothing: a guess would drive someone else's tab.
- *
- * `before` is the ids already connected when the lease was acquired. None of those can be this lease's
- * tab, so a person's own tab sitting on the same URL is never adopted.
+ * the marker never reaches the session and nothing proves whose tab it is. That is NOT adopted: a
+ * person opening the same URL in the same window is indistinguishable from the lease's tab, and
+ * driving it would drive someone else's browser. The lease stays not-ready and the hint names the
+ * candidate (see `connectedUnderOtherIdNote`) for the agent to confirm.
  */
 export function resolveLeasedSessionId(
   sessions: { get: (id: string) => unknown; all: () => { id: string; url?: string }[] },
   leaseId: string,
-  pageUrl?: string,
-  before?: ReadonlySet<string>,
 ): string | undefined {
   if (sessions.get(leaseId) !== undefined) return leaseId;
-  const all = sessions.all();
-  const marked = all.find((s) => sessionParamOf(s.url) === leaseId);
-  if (marked !== undefined) return marked.id;
-  const onPage = sessionsOnUnmarkedPage(all, pageUrl, before);
-  return 1 === onPage.length ? onPage[0]?.id : undefined;
+  return sessions.all().find((s) => sessionParamOf(s.url) === leaseId)?.id;
 }
 
 /** The ids of every session connected right now: take it before acquiring, pass it as `before`. */
@@ -71,6 +63,10 @@ function sessionsOnUnmarkedPage(
   );
 }
 
+/** Unverified on purpose: nothing proves the session is the lease's tab and not a person's. */
+const connectedUnderOtherIdMessage = (leaseId: string, pageUrl: string, id: string): string =>
+  `The lease id ${leaseId} names no session, and the lease was NOT bound to one. Session ${id} connected at ${pageUrl}, the leased tab's address, but it carries no lease marker so it may be a person's tab, not the lease's. Drive it only if you know it is yours; release with the lease id. `;
+
 /**
  * What to say when the lease matched no session but its page IS the address some session connected
  * from. The returned `sessionId` is then the lease id (release still needs it) and no tool accepts
@@ -87,5 +83,5 @@ export function connectedUnderOtherIdNote(
   // Several sessions on one URL cannot be told apart, so none is named: pointing at one would be
   // the guess the resolver refuses to make.
   if (pageUrl === undefined || only === undefined || 1 !== onPage.length) return '';
-  return `The lease id ${leaseId} names no session, but the leased tab is at ${pageUrl} and session ${only.id} connected there. Drive ${only.id}, not the lease id; release with the lease id. `;
+  return connectedUnderOtherIdMessage(leaseId, pageUrl, only.id);
 }

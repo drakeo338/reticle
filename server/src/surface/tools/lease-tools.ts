@@ -258,7 +258,6 @@ export async function acquireLeasedSession(
   seedStorage?: SeedStorage,
 ): Promise<{ sessionId: string; release: () => Promise<void> }> {
   const sessionId = newLeaseId();
-  const before = connectedIds(sessions);
   let lease;
   try {
     lease = await pool.acquire(appendReticleParams(url, sessionId, projectId), {
@@ -275,12 +274,7 @@ export async function acquireLeasedSession(
   // in the run at a session that does not exist.
   let registeredId: string | undefined;
   await connectOrInject(lease, () => {
-    registeredId = resolveLeasedSessionId(
-      sessions,
-      lease.sessionId,
-      pool.pageUrl?.(lease.sessionId),
-      before,
-    );
+    registeredId = resolveLeasedSessionId(sessions, lease.sessionId);
     return registeredId !== undefined;
   });
   if (registeredId !== undefined) pool.alias?.(registeredId, lease.sessionId);
@@ -572,12 +566,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
       // and the id we hand back has to be the one the agent can actually drive.
       let registeredId: string | undefined;
       const { ready, zeroInstall } = await connectOrInject(lease, () => {
-        registeredId = resolveLeasedSessionId(
-          deps.sessions,
-          lease.sessionId,
-          pool.pageUrl?.(lease.sessionId),
-          before,
-        );
+        registeredId = resolveLeasedSessionId(deps.sessions, lease.sessionId);
         return registeredId !== undefined;
       });
       // Tell the pool the other name this lease answers to. Every later touch and release arrives
