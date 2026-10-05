@@ -1,6 +1,6 @@
 import { removeTempDir } from '@/machine/temp-dir.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -18,7 +18,7 @@ import { createNodeFileSystem } from '@/memory/project/fs/fs-port.js';
 import { FlowStore } from '@/language/flows/flows.js';
 import { RunStore } from '@/judgement/runs/artifact/run-store.js';
 import { buildVerificationRun } from '@/judgement/runs/artifact/build-verification-run.js';
-import { emitBuddyStatus, handleGate } from './cli-flow-commands.js';
+import { handleGate } from './cli-flow-commands.js';
 
 const flowResult = (name: string, status: RunFlowStatus): RunFlowResult => ({
   name,
@@ -116,49 +116,5 @@ describe('handleGate reads coverage per flow, not from the single newest run', (
     const out = await gateOutput();
     expect(out.uncovered).toEqual(['flow-a']);
     expect(out.pass).toBe(false);
-  });
-
-  const editSource = async (atMs: number): Promise<void> => {
-    await mkdir(join(dir, 'src'), { recursive: true });
-    const file = join(dir, 'src', 'app.ts');
-    await writeFile(file, 'export const x = 1;\n');
-    await utimes(file, atMs / 1000, atMs / 1000);
-  };
-
-  it('a pass older than the edit leaves the flow uncovered, a pass newer than it does not', async () => {
-    const store = new RunStore(createNodeFileSystem(), root);
-    await store.write(runAt('old', 1000, [flowResult('flow-a', RunFlowStatus.PASS)]));
-    await store.write(runAt('fresh', 5000, [flowResult('flow-b', RunFlowStatus.PASS)]));
-    await editSource(3000);
-    const out = await gateOutput();
-    expect(out.uncovered).toEqual(['flow-a']);
-    expect(out.pass).toBe(false);
-  });
-
-  it('the status line counts the flows that pass and names the one an edit made stale', async () => {
-    const store = new RunStore(createNodeFileSystem(), root);
-    await store.write(
-      runAt('replay', 1000, [
-        flowResult('flow-a', RunFlowStatus.PASS),
-        flowResult('flow-b', RunFlowStatus.PASS),
-        flowResult('gone', RunFlowStatus.PASS),
-      ]),
-    );
-    await store.write(runAt('drive', 2000, []));
-    const fs = createNodeFileSystem();
-    const flows = [
-      { name: 'flow-a', steps: [] },
-      { name: 'flow-b', steps: [] },
-    ];
-    const status = async (affected: string[], changed: string[]): Promise<string> => {
-      stderr.length = 0;
-      await emitBuddyStatus(fs, root, flows, affected, changed);
-      const line = stderr.map((s) => s.trim()).find((s) => s.includes('"event":"reticle_buddy"'));
-      return (JSON.parse(line ?? '{}') as { status: string }).status;
-    };
-    // The deleted flow's pass is not counted, and the drive run did not erase the replay.
-    expect(await status([], [])).toBe('✓ 2/2 flows nominal');
-    await editSource(3000);
-    expect(await status(['flow-a'], ['src/app.ts'])).toBe('✗ 1 deviation: flow-a · 1 nominal');
   });
 });

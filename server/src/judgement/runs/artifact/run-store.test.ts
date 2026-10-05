@@ -147,12 +147,11 @@ describe('RunStore — temp-dir filesystem, never touches the repo', () => {
     await store.write(withFlows('new', 2000, [flowResult('a', RunFlowStatus.FAIL)]));
     await store.write(withFlows('drive', 3000, []));
     const latest = await store.latestPerFlow();
-    expect(latest.get('a')?.result.status).toBe(RunFlowStatus.FAIL);
-    expect(latest.get('b')?.result.status).toBe(RunFlowStatus.PASS);
-    expect(latest.get('b')?.createdAt).toBe(1000);
+    expect(latest.get('a')?.status).toBe(RunFlowStatus.FAIL);
+    expect(latest.get('b')?.status).toBe(RunFlowStatus.PASS);
   });
 
-  it('passingFlowTimes counts pass and heal from each flow newest result, with its time', async () => {
+  it('passingFlowNames counts pass and heal from each flow newest result (the status-line rule)', async () => {
     await store.write(
       withFlows('old', 1000, [
         flowResult('a', RunFlowStatus.PASS),
@@ -167,10 +166,7 @@ describe('RunStore — temp-dir filesystem, never touches the repo', () => {
       ]),
     );
     await store.write(withFlows('drive', 3000, []));
-    expect([...(await store.passingFlowTimes())].sort()).toEqual([
-      ['a', 1000],
-      ['b', 2000],
-    ]);
+    expect([...(await store.passingFlowNames())].sort()).toEqual(['a', 'b']);
   });
 
   it('refuses to write a run whose runId is a path-traversal value', async () => {

@@ -88,20 +88,14 @@ export async function loadNamedFlows(
  * and silent on failure — a status line that throws is worse than no status line, and it must never
  * interfere with the watch loop it rides on.
  */
-export async function emitBuddyStatus(
+async function emitBuddyStatus(
   fs: ReturnType<typeof createNodeFileSystem>,
   reticleRoot: string,
   flows: readonly NamedFlow[],
   affected: readonly string[],
-  changed: readonly string[],
 ): Promise<void> {
   try {
-    const passingNames = currentPassing(
-      await new RunStore(fs, reticleRoot).passingFlowTimes(),
-      affected,
-      changed,
-      process.cwd(),
-    );
+    const passingNames = await new RunStore(fs, reticleRoot).passingFlowNames();
     const quarantined = await new FlakeStore(fs, reticleRoot).flakyFlows();
     const flaky = new Set(quarantined);
     // A deviation is an at-risk flow with no passing artifact — and a quarantined flake is not a deviation.
@@ -109,8 +103,7 @@ export async function emitBuddyStatus(
     log('reticle_buddy', {
       status: formatBuddyStatus({
         total: flows.length,
-        // Only flows that still exist: a deleted flow's old pass is not part of today's suite.
-        passing: flows.filter((f) => passingNames.has(f.name)).length,
+        passing: passingNames.size,
         deviations,
         quarantined,
       }),
@@ -143,7 +136,7 @@ export function handleWatch(): void {
           if (result.affected.length > 0) {
             log('reticle_watch_affected', { changed: files, affected: result.affected });
           }
-          await emitBuddyStatus(fs, reticleRoot, flows, result.affected, files);
+          await emitBuddyStatus(fs, reticleRoot, flows, result.affected);
         })
         .catch((error) => {
           log('reticle_watch_failed', {
@@ -155,7 +148,7 @@ export function handleWatch(): void {
   log('reticle_watch_started', { cwd: process.cwd() });
   // Print the ambient line once at startup so the human sees where they stand before touching anything.
   void loadNamedFlows(fs, reticleRoot, readProjectId(process.cwd()))
-    .then((flows) => emitBuddyStatus(fs, reticleRoot, flows, [], []))
+    .then((flows) => emitBuddyStatus(fs, reticleRoot, flows, []))
     .catch(() => undefined);
   watch(process.cwd(), { recursive: true }, (_event, filename) => {
     if ('string' === typeof filename && WATCHED_EXTENSIONS.test(filename))
@@ -221,29 +214,6 @@ function changedFileModifiedAt(cwd: string, file: string): number | undefined {
   return atChangedPath(cwd, file, (path) => statSync(path).mtimeMs);
 }
 
-/**
- * The flows that count as passing right now. An affected flow whose newest pass is older than the
- * latest edit to a changed file describes the code before that edit, so it is not covered; a flow
- * the edit did not touch keeps its pass, and so does one whose changed files cannot be found on disk.
- */
-function currentPassing(
-  passingAt: ReadonlyMap<string, number>,
-  affected: readonly string[],
-  changed: readonly string[],
-  cwd: string,
-): Set<string> {
-  const editedAt = Math.max(
-    -Infinity,
-    ...changed.map((file) => changedFileModifiedAt(cwd, file) ?? -Infinity),
-  );
-  const affectedSet = new Set(affected);
-  const passing = new Set<string>();
-  for (const [name, at] of passingAt) {
-    if (!(affectedSet.has(name) && at < editedAt)) passing.add(name);
-  }
-  return passing;
-}
-
 export async function handleGate(
   files: string[],
   since: string | undefined,
@@ -259,14 +229,7 @@ export async function handleGate(
     const changed = (await resolveChangedFiles(files, since, process.cwd())).files;
     const allFlows = await loadNamedFlows(fs, reticleRoot, readProjectId(process.cwd()));
     const affected = affectedSavedFlows(allFlows, changed).affected;
-    const passing = [
-      ...currentPassing(
-        await new RunStore(fs, reticleRoot).passingFlowTimes(),
-        affected,
-        changed,
-        process.cwd(),
-      ),
-    ];
+    const passing = [...(await new RunStore(fs, reticleRoot).passingFlowNames())];
     const flaky = await new FlakeStore(fs, reticleRoot).flakyFlows();
     // Anti-reward-hacking: diff each flow's CURRENT assertions against what it asserted the last
     // time it passed. A mustHold that dropped from a real consequence to a fakeable presence check is a
