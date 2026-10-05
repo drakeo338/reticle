@@ -19,12 +19,6 @@ import {
 import { mutationPortFor, type NetworkMutationPort } from '@/portal/input/network-mutation.js';
 import type { Perturbation } from '@reticlehq/core';
 import { z } from 'zod';
-import {
-  connectedIds,
-  connectedUnderOtherIdNote,
-  resolveLeasedSessionId,
-  sessionParamOf,
-} from './lease-session-match.js';
 import { leaseNotConnectedHint, type LeaseEvidence } from './lease-hint.js';
 import { probeLeaseAlive, tabHidden } from './lease-readiness.js';
 import { probeSdkMarker } from './gaps/sdk-marker-probe.js';
@@ -182,7 +176,26 @@ function newLeaseId(): string {
   return `lease-${uuid}`;
 }
 
-export { resolveLeasedSessionId };
+/**
+ * The session a lease's tab actually registered as, or undefined while nothing has.
+ *
+ * Normally that is the lease id: `appendReticleParams` stamps `__reticle_session` on the URL and the
+ * SDK adopts it. An app that passes an explicit `session` to `connect()` keeps its own name instead,
+ * which is legitimate — a single-app fixture does it deliberately so a battery can address it by a
+ * known id. Matching on the lease id alone could never see those tabs, so the lease reported
+ * `ready: false` and a hint blaming a port mismatch while the session was connected and driveable.
+ *
+ * The URL marker is the evidence, and it is what makes this safe: two concurrent leases on one origin
+ * carry different markers, so neither can adopt the other's tab. Parsed rather than substring-matched,
+ * so `lease-abc` cannot claim `lease-abcdef`.
+ */
+export function resolveLeasedSessionId(
+  sessions: { get: (id: string) => unknown; all: () => { id: string; url?: string }[] },
+  leaseId: string,
+): string | undefined {
+  if (sessions.get(leaseId) !== undefined) return leaseId;
+  return sessions.all().find((s) => sessionParamOf(s.url) === leaseId)?.id;
+}
 
 /**
  * Carry a claimed identity across a navigation.
@@ -210,6 +223,15 @@ function projectParamOf(url: string | undefined): string | undefined {
   if (url === undefined) return undefined;
   try {
     return new URL(url).searchParams.get(RETICLE_URL_PARAM.PROJECT) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sessionParamOf(url: string | undefined): string | undefined {
+  if (url === undefined) return undefined;
+  try {
+    return new URL(url).searchParams.get(RETICLE_URL_PARAM.SESSION) ?? undefined;
   } catch {
     return undefined;
   }
@@ -249,8 +271,6 @@ export async function acquireLeasedSession(
     dialFailureUrl?: (sessionId: string) => string | undefined;
     /** Optional so a test double need not implement it; the real pool always does. */
     alias?: (registeredId: string, leaseId: string) => void;
-    /** Where the lease's page is now. Optional so a test double need not implement it. */
-    pageUrl?: (sessionId: string) => string | undefined;
   },
   sessions: { get: (id: string) => unknown; all: () => { id: string; url?: string }[] },
   url: string,
@@ -540,7 +560,6 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
         await pool.release(existing);
       }
       const sessionId = newLeaseId();
-      const before = connectedIds(deps.sessions);
       const navUrl = appendReticleParams(url, sessionId, projectId, hud);
       let lease;
       try {
@@ -623,12 +642,7 @@ export const LEASE_ACQUIRE_TOOL: ToolDef = {
         ...hintOf(
           ready
             ? undefined
-            : `${connectedUnderOtherIdNote(
-                deps.sessions.all(),
-                lease.sessionId,
-                pool.pageUrl?.(lease.sessionId),
-                before,
-              )}${await notConnectedHint(deps, url, pool.dialFailureUrl?.(lease.sessionId))}`,
+            : await notConnectedHint(deps, url, pool.dialFailureUrl?.(lease.sessionId)),
           ready ? await notificationReadBack(pool, lease.sessionId, permissions) : undefined,
         ),
       };

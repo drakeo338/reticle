@@ -10,11 +10,6 @@
 export interface PooledPage {
   goto(url: string, opts?: { timeoutMs?: number }): Promise<unknown>;
   close(): Promise<void>;
-  /**
-   * The page's current URL, after any redirect. OPTIONAL: a fake that does not implement it makes
-   * the pool report no URL, and the lease then matches its tab by the URL marker alone.
-   */
-  url?(): string;
   /** Fires when THIS page's renderer crashes — lets the pool reclaim just this lease, not the fleet. */
   onCrash(handler: () => void): void;
   /**

@@ -11,7 +11,8 @@
  */
 
 import { unreachableUrlIn, type SeedStorage } from '@reticlehq/core';
-import { seedStorageInto } from './storage-seed.js';
+import { seedStorageInto, targetOriginOf } from './storage-seed.js';
+import { installLeaseMarker, leaseMarkerOf } from './lease-marker-stamp.js';
 import {
   grantLeasePermissions,
   NOTIFICATION_PERMISSION_READ,
@@ -513,6 +514,11 @@ export class BrowserPool {
         else pendingDialogMessage = dialog.message;
         void dialog.dismiss();
       });
+      // A lease whose URL carries its marker keeps it across a server redirect (see the stamp).
+      const marker = leaseMarkerOf(url);
+      if (marker !== undefined && marker.session === sessionId) {
+        await installLeaseMarker(page, sessionId, targetOriginOf(url), marker.project);
+      }
       let seedHandle: InitScriptHandle | undefined;
       let checkSeedError: (() => void) | undefined;
       if (opts.seedStorage !== undefined) {
@@ -599,23 +605,6 @@ export class BrowserPool {
    */
   lastDialogMessage(sessionId: string): string | undefined {
     return this.#active.get(this.#leaseIdOf(sessionId))?.lastDialogMessage;
-  }
-
-  /**
-   * Where this lease's page is right now, after any server redirect. Undefined when the id is not a
-   * lease, the page cannot say, or another live lease's page is at the same URL. A leased page that
-   * was redirected has lost the `__reticle_session` marker, and this is what still ties it to the
-   * session its SDK registered; two leases redirected to one login page would otherwise each claim
-   * whichever session connected first.
-   */
-  pageUrl(sessionId: string): string | undefined {
-    const leaseId = this.#leaseIdOf(sessionId);
-    const url = this.#active.get(leaseId)?.page.url?.();
-    if (url === undefined) return undefined;
-    for (const [id, other] of this.#active) {
-      if (id !== leaseId && other.page.url?.() === url) return undefined;
-    }
-    return url;
   }
 
   /** Close every context and the browser. Pending waiters are rejected (the pool is terminal now). */
