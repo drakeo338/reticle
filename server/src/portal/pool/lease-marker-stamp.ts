@@ -11,20 +11,9 @@ interface LeaseMarkerArg {
 }
 
 /**
- * Runs in the leased page before any app script, on every document it loads, redirects included.
- *
- * The lease navigates to `url?__reticle_session=<lease id>` and the SDK registers under that id. A
- * server redirect (an auth gate, a locale redirect) drops the query string, so the SDK met a URL
- * with no marker and registered under its own id: the lease then named no session. This puts the
- * marker back on the document's URL (history.replaceState, no reload, no request) before the SDK
- * reads it, so the SDK registers under the lease id exactly as if nothing had redirected.
- *
- * The evidence is tied to the leased page itself: an init script runs only in pages of the lease's
- * own browser context, so a person's tab at the same URL never carries the marker and is never
- * matched. Top frame only, and only on the lease's target origin, so the lease id is not written
- * into an identity provider's or any third party's URL.
- *
- * Must stay self-contained: Playwright serialises the function source into the page.
+ * Init script: a server redirect drops the `?__reticle_session=` marker, so this restores it with
+ * history.replaceState before the SDK reads it. Top frame, lease target origin only. Must stay
+ * self-contained: Playwright serialises the function source into the page.
  */
 export function stampLeaseMarker(arg: LeaseMarkerArg): void {
   const win = (globalThis as unknown as { window?: unknown }).window as
