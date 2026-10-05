@@ -27,7 +27,7 @@ import {
   staleChanged,
   unexecutedChanged,
 } from '@/features/exhaust/ledger.js';
-import { gateDecision, passingFlowNames } from '@/language/flows/change/gate.js';
+import { gateDecision } from '@/language/flows/change/gate.js';
 import { FlakeStore } from '@/language/flows/stores/flake-store.js';
 import { formatBuddyStatus } from '@/language/flows/buddy-status.js';
 import { CapsuleStore } from '@/judgement/capsule/capsule-store.js';
@@ -95,8 +95,7 @@ async function emitBuddyStatus(
   affected: readonly string[],
 ): Promise<void> {
   try {
-    const latest = await new RunStore(fs, reticleRoot).latest();
-    const passingNames = new Set(passingFlowNames(latest?.flows ?? []));
+    const passingNames = await new RunStore(fs, reticleRoot).passingFlowNames();
     const quarantined = await new FlakeStore(fs, reticleRoot).flakyFlows();
     const flaky = new Set(quarantined);
     // A deviation is an at-risk flow with no passing artifact — and a quarantined flake is not a deviation.
@@ -230,8 +229,7 @@ export async function handleGate(
     const changed = (await resolveChangedFiles(files, since, process.cwd())).files;
     const allFlows = await loadNamedFlows(fs, reticleRoot, readProjectId(process.cwd()));
     const affected = affectedSavedFlows(allFlows, changed).affected;
-    const latest = await new RunStore(fs, reticleRoot).latest();
-    const passing = passingFlowNames(latest?.flows ?? []);
+    const passing = [...(await new RunStore(fs, reticleRoot).passingFlowNames())];
     const flaky = await new FlakeStore(fs, reticleRoot).flakyFlows();
     // Anti-reward-hacking: diff each flow's CURRENT assertions against what it asserted the last
     // time it passed. A mustHold that dropped from a real consequence to a fakeable presence check is a

@@ -13,11 +13,13 @@ import {
   RUN_RETENTION_SLACK,
   RunReadError,
   type ReticleVerificationRun,
+  type RunFlowResult,
   type RunId,
 } from '@reticlehq/core';
 import { PromptContextSchema, type PromptContext } from '@reticlehq/core/artifacts';
 import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
 import { reticleDirPaths, isValidRunId, runPath } from '@/memory/project/dir/reticle-dir.js';
+import { passingFlowNames as creditedNames } from '@/language/flows/change/gate.js';
 
 const JSON_INDENT = 2;
 const JSON_EXT = '.json';
@@ -184,6 +186,35 @@ export class RunStore {
       }
     }
     return best;
+  }
+
+  /**
+   * The newest recorded result for each flow name, taken across every readable run. A run that
+   * carries no flows (a drive or an export) says nothing about any flow, so it can neither supply
+   * nor erase a result: judging coverage from `latest()` alone let one such run hide every earlier
+   * replay.
+   */
+  async latestPerFlow(): Promise<Map<string, RunFlowResult>> {
+    const newest = new Map<string, { at: number; result: RunFlowResult }>();
+    for (const id of await this.list()) {
+      const read = await this.read(id);
+      if (!read.ok) continue;
+      for (const result of read.run.flows) {
+        const seen = newest.get(result.name);
+        if (seen === undefined || read.run.createdAt > seen.at) {
+          newest.set(result.name, { at: read.run.createdAt, result });
+        }
+      }
+    }
+    return new Map([...newest].map(([name, { result }]) => [name, result]));
+  }
+
+  /**
+   * Names of the flows whose newest result counts as passing under the gate's rule (`creditedNames`:
+   * a pass or a heal, and a template credited by a proving copy). The one coverage rule.
+   */
+  async passingFlowNames(): Promise<Set<string>> {
+    return new Set(creditedNames([...(await this.latestPerFlow()).values()]));
   }
 
   /**
