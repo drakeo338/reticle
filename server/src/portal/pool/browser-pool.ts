@@ -514,9 +514,8 @@ export class BrowserPool {
         else pendingDialogMessage = dialog.message;
         void dialog.dismiss();
       });
-      // A lease whose URL carries its marker keeps it across a server redirect (see the stamp).
       const marker = leaseMarkerOf(url);
-      if (marker !== undefined && marker.session === sessionId) {
+      if (marker?.session === sessionId) {
         await installLeaseMarker(page, sessionId, targetOriginOf(url), marker.project);
       }
       let seedHandle: InitScriptHandle | undefined;
