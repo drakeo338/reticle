@@ -110,7 +110,6 @@ export async function emitBuddyStatus(
     log('reticle_buddy', {
       status: formatBuddyStatus({
         total: flows.length,
-        // Only flows that still exist: a deleted flow's old pass is not part of today's suite.
         passing: flows.filter((f) => passingNames.has(f.name)).length,
         deviations,
         quarantined,
@@ -223,11 +222,8 @@ function changedFileModifiedAt(cwd: string, file: string): number | undefined {
 }
 
 /**
- * The flows that count as passing right now. An affected flow's newest pass counts only if its run
- * is later than the newest edit to the changed files in THAT flow's own sources (a flow with no
- * recorded sources cannot be attributed, so every changed file counts for it). An edit outside the
- * flow's sources never invalidates it; a changed file that is gone fails closed, so the flow stays
- * uncovered. A flow the edit did not touch keeps its pass.
+ * Flows passing now. An affected flow's pass counts only if newer than every changed file in its own
+ * sources (all changed files when it has none); a missing changed file fails closed.
  */
 function currentPassing(
   passingAt: ReadonlyMap<string, number>,

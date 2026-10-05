@@ -188,12 +188,7 @@ export class RunStore {
     return best;
   }
 
-  /**
-   * The newest recorded result for each flow name, taken across every readable run, with the time
-   * of the run it came from. A run that carries no flows (a drive or an export) says nothing about
-   * any flow, so it can neither supply nor erase a result: judging coverage from `latest()` alone
-   * let one such run hide every earlier replay. Equal times keep the first result seen.
-   */
+  /** Newest result per flow name across all readable runs; flowless runs neither supply nor erase one. */
   async latestPerFlow(): Promise<Map<string, { result: RunFlowResult; createdAt: number }>> {
     const newest = new Map<string, { result: RunFlowResult; createdAt: number; id: string }>();
     for (const id of await this.list()) {
@@ -201,7 +196,6 @@ export class RunStore {
       if (!read.ok) continue;
       for (const result of read.run.flows) {
         const seen = newest.get(result.name);
-        // Equal times break on the run id, so the answer never depends on the order `list()` returns.
         const newer =
           seen !== undefined &&
           (read.run.createdAt > seen.createdAt ||
@@ -214,11 +208,7 @@ export class RunStore {
     return newest;
   }
 
-  /**
-   * The flows whose newest result counts as passing under the gate's rule (`creditedNames`: a pass
-   * or a heal, and a template credited by a proving copy), each with the time of that result. The
-   * one coverage rule; the time lets a caller refuse a pass that predates an edit.
-   */
+  /** Flows whose newest result passes by the gate's rule (creditedNames), with that run's time. */
   async passingFlowTimes(): Promise<Map<string, number>> {
     const passing = new Map<string, number>();
     for (const { result, createdAt } of (await this.latestPerFlow()).values()) {
