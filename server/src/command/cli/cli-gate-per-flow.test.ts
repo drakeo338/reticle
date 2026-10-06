@@ -2,7 +2,7 @@ import { removeTempDir } from '@/machine/temp-dir.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   ActionType,
   QueryBy,
@@ -261,8 +261,19 @@ describe('handleGate reads coverage per flow, not from the single newest run', (
     await stampSources({ 'flow-a': 'src/app.ts', 'flow-b': 'src/other.ts' });
     await bothGreen();
     await touch('src/app.ts', 1500);
-    const out = await gateOutput(['web/src/app.ts']);
+    // The gate runs in the package directory; the changed path is repo-root-relative.
+    const out = await gateOutput([`${basename(dir)}/src/app.ts`]);
     expect(out.uncovered).toEqual(['flow-a']);
+  });
+
+  it('a deleted source does not pick up an unrelated file with the same name further up', async () => {
+    await stampSources({ 'flow-a': 'lib/util.ts', 'flow-b': 'src/other.ts' });
+    await bothGreen();
+    // lib/util.ts is gone; an older util.ts sits in cwd and must not stand in for it.
+    await touch('util.ts', 500);
+    const out = await gateOutput(['lib/util.ts']);
+    expect(out.uncovered).toEqual(['flow-a']);
+    expect(out.pass).toBe(false);
   });
 
   it('an absolute source stamp matches a repo-relative changed path', async () => {

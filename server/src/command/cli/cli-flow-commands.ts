@@ -10,7 +10,7 @@ import { GateExit } from './answers/gate-exit.js';
 import { gateHookMessage, GATE_SKIP_ENV } from './answers/gate-hook-message.js';
 import { readProjectId } from './ports/resolve/cli-port.js';
 import { changedFilesSince, type ChangedFiles } from '@/language/flows/change/git-changed.js';
-import { join } from 'node:path';
+import { isAbsolute, join, sep } from 'node:path';
 import { type ProjectId, ReticleDir } from '@reticlehq/core';
 import { FlowStore } from '@/language/flows/flows.js';
 import { RunStore } from '@/judgement/runs/artifact/run-store.js';
@@ -20,8 +20,11 @@ import {
   toFlowSources,
   type NamedFlow,
 } from '@/language/flows/change/flow-sources.js';
-import { sourceMatchesChange } from '@/language/flows/change/affected.js';
-import { isInteractiveSource, unflowedFiles } from '@/language/flows/change/affected.js';
+import {
+  isInteractiveSource,
+  sourceMatchesChange,
+  unflowedFiles,
+} from '@/language/flows/change/affected.js';
 import {
   LedgerStore,
   regressions,
@@ -195,17 +198,30 @@ export async function handleCapsules(): Promise<void> {
  */
 /**
  * A changed file's text, or '' when it is gone. `git diff --name-only` answers from the repository
- * root while the gate may run in a package below it, so leading segments are dropped until the path
- * resolves from `cwd`.
+ * root while the gate may run in a package below it, so a leading segment is dropped only when it is
+ * the directory the gate runs in (or a chain of them ending at `cwd`). An absolute path is read as is.
+ * Never fall through to a shorter suffix that merely happens to exist: that is another file.
  */
 function atChangedPath<T>(cwd: string, file: string, read: (path: string) => T): T | undefined {
-  const parts = file.split('/');
-  for (let i = 0; i < parts.length; i += 1) {
+  const attempt = (path: string): T | undefined => {
     try {
-      return read(join(cwd, ...parts.slice(i)));
+      return read(path);
     } catch {
-      // not at this depth; try the path one segment shorter
+      return undefined;
     }
+  };
+  if (isAbsolute(file)) return attempt(file);
+  const parts = file.split('/');
+  const cwdParts = cwd.split(sep);
+  for (let i = 0; i < parts.length; i += 1) {
+    if (
+      i > 0 &&
+      (i > cwdParts.length || cwdParts.slice(-i).join('/') !== parts.slice(0, i).join('/'))
+    ) {
+      continue;
+    }
+    const found = attempt(join(cwd, ...parts.slice(i)));
+    if (found !== undefined) return found;
   }
   return undefined;
 }
@@ -230,8 +246,9 @@ function changedFileModifiedAt(cwd: string, file: string): number | undefined {
  *
  * `onDisk` is for the long-running watcher, which sees only one debounce batch at a time: it also
  * reads the newest mtime of the flow's own sources on disk, so an earlier edit keeps the flow stale
- * after an unrelated save or a restart. A source that is simply missing is ignored there, since no
- * change reported it. Without `onDisk` only `affected` flows are judged (the gate's contract).
+ * after an unrelated save or a restart. A source that is missing counts as stale there, as it does
+ * for the gate. A flow with no stamped sources shows nominal at startup, since an edit cannot be
+ * attributed to it without a batch of changed files. Without `onDisk` only `affected` flows are judged (the gate's contract).
  */
 async function currentPassing(
   fs: FileSystemPort,
@@ -249,7 +266,7 @@ async function currentPassing(
     const sources = sourcesOf.get(name) ?? [];
     const reported =
       0 === sources.length ? changed : changed.filter((f) => sourceMatchesChange(f, sources));
-    const diskTimes = onDisk ? sources.flatMap((f) => changedFileModifiedAt(cwd, f) ?? []) : [];
+    const diskTimes = onDisk ? sources.map((f) => changedFileModifiedAt(cwd, f)) : [];
     const judged = affected.includes(name) || (onDisk && sources.length > 0);
     const newerThanPass = (t: number | undefined): boolean => !((t ?? Infinity) < at);
     const isStale =
