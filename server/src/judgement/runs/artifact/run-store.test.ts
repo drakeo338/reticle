@@ -13,6 +13,7 @@ import {
 } from '@reticlehq/core';
 import { buildVerificationRun, type VerificationRunInput } from './build-verification-run.js';
 import { RunStore } from './run-store.js';
+import { passingFlowNames } from '@/language/flows/change/gate.js';
 import { createNodeFileSystem, type FileSystemPort } from '@/memory/project/fs/fs-port.js';
 import { RunAgentKind, RunFramework, RunProfile, RunTrigger } from '@reticlehq/core';
 
@@ -173,9 +174,26 @@ describe('RunStore — temp-dir filesystem, never touches the repo', () => {
       ]),
     );
     await store.write(withFlows('drive', 3000, []));
-    expect([...(await store.passingFlowTimes())].sort()).toEqual([
+    expect([...(await store.passingFlowTimes(passingFlowNames))].sort()).toEqual([
       ['a', 1000],
       ['b', 2000],
+    ]);
+  });
+
+  it('passingFlowTimes credits a template from a copy that proved a consequence (#1321)', async () => {
+    const copy = (name: string, consequence?: string): RunFlowResult => ({
+      ...flowResult(name, RunFlowStatus.PASS),
+      template: 'checkout',
+      stepResults: [
+        { step: 0, anchor: 'Pay', ok: true, ...(consequence === undefined ? {} : { consequence }) },
+      ],
+    });
+    await store.write(withFlows('old', 1000, [copy('checkout--fixture-1', 'net POST')]));
+    await store.write(withFlows('new', 2000, [copy('checkout--fixture-2')]));
+    expect([...(await store.passingFlowTimes(passingFlowNames))].sort()).toEqual([
+      ['checkout', 1000],
+      ['checkout--fixture-1', 1000],
+      ['checkout--fixture-2', 2000],
     ]);
   });
 

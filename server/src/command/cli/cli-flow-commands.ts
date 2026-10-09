@@ -31,7 +31,7 @@ import {
   staleChanged,
   unexecutedChanged,
 } from '@/features/exhaust/ledger.js';
-import { gateDecision } from '@/language/flows/change/gate.js';
+import { gateDecision, passingFlowNames } from '@/language/flows/change/gate.js';
 import { FlakeStore } from '@/language/flows/stores/flake-store.js';
 import { formatBuddyStatus } from '@/language/flows/buddy-status.js';
 import { CapsuleStore } from '@/judgement/capsule/capsule-store.js';
@@ -262,7 +262,7 @@ async function currentPassing(
   const passing = new Set<string>();
   const stale = new Set<string>();
   const cwd = process.cwd();
-  for (const [name, at] of await new RunStore(fs, root).passingFlowTimes()) {
+  for (const [name, at] of await new RunStore(fs, root).passingFlowTimes(passingFlowNames)) {
     const sources = sourcesOf.get(name) ?? [];
     const reported =
       0 === sources.length ? changed : changed.filter((f) => sourceMatchesChange(f, sources));

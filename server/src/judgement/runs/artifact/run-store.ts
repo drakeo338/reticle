@@ -19,7 +19,6 @@ import {
 import { PromptContextSchema, type PromptContext } from '@reticlehq/core/artifacts';
 import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
 import { reticleDirPaths, isValidRunId, runPath } from '@/memory/project/dir/reticle-dir.js';
-import { passingFlowNames as creditedNames } from '@/language/flows/change/gate.js';
 
 const JSON_INDENT = 2;
 const JSON_EXT = '.json';
@@ -221,10 +220,13 @@ export class RunStore {
    * The flows whose newest result is a pass or a heal, each with the time of that result. The one
    * coverage rule; the time lets a caller refuse a pass that predates an edit.
    */
-  async passingFlowTimes(): Promise<Map<string, number>> {
+  /** Names `credit` (the gate's passing rule) gives each flow's newest result, with that time. */
+  async passingFlowTimes(
+    credit: (flows: readonly RunFlowResult[]) => readonly string[],
+  ): Promise<Map<string, number>> {
     const passing = new Map<string, number>();
     for (const { result, createdAt } of (await this.latestPerFlow()).values()) {
-      for (const name of creditedNames([result]))
+      for (const name of credit([result]))
         passing.set(name, Math.max(passing.get(name) ?? createdAt, createdAt));
     }
     return passing;
