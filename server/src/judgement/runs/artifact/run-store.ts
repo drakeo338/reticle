@@ -15,6 +15,7 @@ import {
   RunScreenshotSchema,
   STEP_SCREENSHOT,
   type ReticleVerificationRun,
+  type RunFlowResult,
   type RunId,
   type RunScreenshot,
   type StepScreenshot,
@@ -55,6 +56,12 @@ interface RunStoreOptions {
 
 /** A request older than this is about some other task, not the run being written now. */
 const REQUEST_RELEVANT_MS = 6 * 60 * 60 * 1000;
+
+interface FlowAt {
+  result: RunFlowResult;
+  createdAt: number;
+  id: string;
+}
 
 /** Which run a recorded request was attached to, written into the request file. */
 const REQUEST_RUN_KEY = 'answeredByRun';
@@ -208,6 +215,45 @@ export class RunStore {
       }
     }
     return best;
+  }
+
+  /**
+   * The newest recorded result for each flow name, taken across every readable run, with the time
+   * and id of the run it came from. A run that carries no flows (a drive or an export) says nothing
+   * about any flow, so it can neither supply nor erase a result: judging coverage from `latest()`
+   * alone let one such run hide every earlier replay. Equal times break on the run id, so the answer
+   * never depends on the order `list()` returns.
+   */
+  async latestPerFlow(): Promise<Map<string, FlowAt>> {
+    const newest = new Map<string, FlowAt>();
+    for (const id of await this.list()) {
+      const read = await this.read(id);
+      if (!read.ok) continue;
+      const createdAt = read.run.createdAt;
+      for (const result of read.run.flows) {
+        const s = newest.get(result.name);
+        if (!s || createdAt > s.createdAt || (createdAt === s.createdAt && id > s.id)) {
+          newest.set(result.name, { result, createdAt, id });
+        }
+      }
+    }
+    return newest;
+  }
+
+  /**
+   * The names `credit` (the gate's passing rule) gives each flow's newest result, each with the time
+   * of that result, so a caller can refuse a pass that predates an edit. The rule is passed in, so
+   * the run store does not reach into the flow language.
+   */
+  async passingFlowTimes(
+    credit: (flows: readonly RunFlowResult[]) => readonly string[],
+  ): Promise<Map<string, number>> {
+    const passing = new Map<string, number>();
+    for (const { result, createdAt } of (await this.latestPerFlow()).values()) {
+      for (const name of credit([result]))
+        passing.set(name, Math.max(passing.get(name) ?? createdAt, createdAt));
+    }
+    return passing;
   }
 
   /**

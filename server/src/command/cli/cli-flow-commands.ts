@@ -17,7 +17,7 @@ import { knownRegression } from './known-regression.js';
 import { gateHookMessage, GATE_SKIP_ENV } from './answers/gate-hook-message.js';
 import { readProjectId } from './ports/resolve/cli-port.js';
 import { changedFilesSince, type ChangedFiles } from '@/language/flows/change/git-changed.js';
-import { join } from 'node:path';
+import { isAbsolute, join, sep } from 'node:path';
 import { type ProjectId, ReticleDir } from '@reticlehq/core';
 import { FlowStore } from '@/language/flows/flows.js';
 import { RunStore } from '@/judgement/runs/artifact/run-store.js';
@@ -27,7 +27,11 @@ import {
   toFlowSources,
   type NamedFlow,
 } from '@/language/flows/change/flow-sources.js';
-import { isInteractiveSource, unflowedFiles } from '@/language/flows/change/affected.js';
+import {
+  isInteractiveSource,
+  sourceMatchesChange,
+  unflowedFiles,
+} from '@/language/flows/change/affected.js';
 import {
   LedgerStore,
   regressions,
@@ -92,17 +96,30 @@ export async function loadNamedFlows(
  */
 /**
  * A changed file's text, or '' when it is gone. `git diff --name-only` answers from the repository
- * root while the gate may run in a package below it, so leading segments are dropped until the path
- * resolves from `cwd`.
+ * root while the gate may run in a package below it, so a leading segment is dropped only when it is
+ * the directory the gate runs in (or a chain of them ending at `cwd`). An absolute path is read as is.
+ * Never fall through to a shorter suffix that merely happens to exist: that is another file.
  */
 function atChangedPath<T>(cwd: string, file: string, read: (path: string) => T): T | undefined {
-  const parts = file.split('/');
-  for (let i = 0; i < parts.length; i += 1) {
+  const attempt = (path: string): T | undefined => {
     try {
-      return read(join(cwd, ...parts.slice(i)));
+      return read(path);
     } catch {
-      // not at this depth; try the path one segment shorter
+      return undefined;
     }
+  };
+  if (isAbsolute(file)) return attempt(file);
+  const parts = file.split('/');
+  const cwdParts = cwd.split(sep);
+  for (let i = 0; i < parts.length; i += 1) {
+    if (
+      i > 0 &&
+      (i > cwdParts.length || cwdParts.slice(-i).join('/') !== parts.slice(0, i).join('/'))
+    ) {
+      continue;
+    }
+    const found = attempt(join(cwd, ...parts.slice(i)));
+    if (found !== undefined) return found;
   }
   return undefined;
 }
@@ -114,6 +131,38 @@ function readChangedFile(cwd: string, file: string): string {
 /** When a changed file was last modified, or undefined when it is gone. Same lookup as its text. */
 function changedFileModifiedAt(cwd: string, file: string): number | undefined {
   return atChangedPath(cwd, file, (path) => statSync(path).mtimeMs);
+}
+
+/**
+ * The flows that still count as passing for the gate.
+ *
+ * A flow's newest pass counts only if its run is later than the newest mtime of the changed files
+ * that belong to THAT flow: the changed files that match its sources (the same suffix rule as
+ * `affectedFlows`, so a repo-root path, a package-relative stamp and an absolute stamp all agree).
+ * Edits outside its sources never invalidate it. A flow with no recorded sources cannot be
+ * attributed, so every changed file counts for it. A changed file that is gone fails closed. Only
+ * `affected` flows are judged; any other flow's newest pass stands.
+ */
+async function currentPassing(
+  fs: FileSystemPort,
+  root: string,
+  flows: readonly NamedFlow[],
+  affected: readonly string[],
+  changed: readonly string[],
+): Promise<string[]> {
+  const sourcesOf = new Map(toFlowSources(flows).map((f) => [f.name, f.sources ?? []]));
+  const passing: string[] = [];
+  const cwd = process.cwd();
+  for (const [name, at] of await new RunStore(fs, root).passingFlowTimes(passingFlowNames)) {
+    const sources = sourcesOf.get(name) ?? [];
+    const own =
+      0 === sources.length ? changed : changed.filter((f) => sourceMatchesChange(f, sources));
+    const stale =
+      affected.includes(name) &&
+      own.some((f) => !((changedFileModifiedAt(cwd, f) ?? Infinity) < at));
+    if (!stale) passing.push(name);
+  }
+  return passing;
 }
 
 export async function handleGate(
@@ -131,8 +180,7 @@ export async function handleGate(
     const changed = (await resolveChangedFiles(files, since, process.cwd())).files;
     const allFlows = await loadNamedFlows(fs, reticleRoot, readProjectId(process.cwd()));
     const affected = affectedSavedFlows(allFlows, changed).affected;
-    const latest = await new RunStore(fs, reticleRoot).latest();
-    const passing = passingFlowNames(latest?.flows ?? []);
+    const passing = await currentPassing(fs, reticleRoot, allFlows, affected, changed);
     const flaky = await new FlakeStore(fs, reticleRoot).flakyFlows();
     // Anti-reward-hacking: diff each flow's CURRENT assertions against what it asserted the last
     // time it passed. A mustHold that dropped from a real consequence to a fakeable presence check is a

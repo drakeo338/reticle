@@ -19,9 +19,28 @@ export interface AffectedResult {
   unknownProvenance: string[];
 }
 
-/** Normalize a path for comparison — strip a leading./ and any file:line suffix. */
+/** Normalize a path for comparison — use `/` separators, strip a leading ./ and any file:line suffix. */
 function normalize(path: string): string {
-  return path.replace(/^\.\//, '').replace(/:\d+(:\d+)?$/, '');
+  return path
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/:\d+(:\d+)?$/, '');
+}
+
+/**
+ * The one rule for "this changed file is that flow source": paths are compared by normalized suffix,
+ * so a repo-root-relative change (`web/src/app.ts`) matches a package-relative stamp (`src/app.ts`)
+ * and an absolute stamp, and vice-versa. Everything that asks whether a flow touches a file uses it,
+ * so "affected" and "stale" can never disagree about which files belong to a flow.
+ */
+export function pathsMatch(a: string, b: string): boolean {
+  const x = normalize(a);
+  const y = normalize(b);
+  return x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`);
+}
+
+export function sourceMatchesChange(source: string, changedFiles: readonly string[]): boolean {
+  return changedFiles.some((c) => pathsMatch(c, source));
 }
 
 /**
@@ -33,11 +52,7 @@ export function affectedFlows(
   flows: readonly FlowSources[],
   changedFiles: readonly string[],
 ): AffectedResult {
-  const changed = changedFiles.map(normalize);
-  const matchesChange = (source: string): boolean => {
-    const s = normalize(source);
-    return changed.some((c) => c === s || c.endsWith(`/${s}`) || s.endsWith(`/${c}`));
-  };
+  const matchesChange = (source: string): boolean => sourceMatchesChange(source, changedFiles);
 
   const affected: string[] = [];
   const unknownProvenance: string[] = [];

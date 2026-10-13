@@ -28,6 +28,11 @@ describe('affectedFlows', () => {
     expect(result.affected).toEqual(['checkout']);
   });
 
+  it('matches a Windows stamp written with backslashes', () => {
+    const flows = [{ name: 'checkout', sources: ['C:\\repo\\src\\app.ts:12'] }];
+    expect(affectedFlows(flows, ['src/app.ts']).affected).toEqual(['checkout']);
+  });
+
   it('returns nothing affected when a fully-provenanced suite is untouched', () => {
     const flows = [{ name: 'checkout', sources: ['src/Checkout.tsx'] }];
     expect(affectedFlows(flows, ['src/other.ts']).affected).toEqual([]);
